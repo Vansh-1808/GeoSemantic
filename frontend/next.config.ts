@@ -5,6 +5,13 @@ const nextConfig: NextConfig = {
   images: {
     unoptimized: true, // Serve thumbnails directly from FastAPI
   },
+  experimental: {
+    middlewareClientMaxBodySize: "500mb",
+    serverActions: {
+      bodySizeLimit: "500mb",
+    },
+    proxyTimeout: 300_000,
+  },
   // Forward /api/* to the FastAPI backend during development
   async rewrites() {
     return [

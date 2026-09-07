@@ -28,12 +28,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ProcessSceneDialog } from "@/components/scenes/ProcessSceneDialog";
 import { TilePreviewModal } from "@/components/tiles/TilePreviewModal";
 import { SpatialCoverageMap } from "@/components/map/SpatialCoverageMap";
+import { QualityBadge } from "@/components/quality/QualityBadge";
+import { SceneQualityWidget } from "@/components/quality/SceneQualityWidget";
 
 export default function DatasetsPage() {
   const [selectedSceneId, setSelectedSceneId] = useState<string | null>(null);
   const [inspectTileId, setInspectTileId] = useState<string | null>(null);
   const [isProcessDialogOpen, setIsProcessDialogOpen] = useState<boolean>(false);
-  const [tileFilter, setTileFilter] = useState<"all" | "high-quality">("all");
+  const [tileFilter, setTileFilter] = useState<"all" | "suitable" | "caution" | "poor">("all");
 
   // ── Fetch scenes ─────────────────────────────────────────────
   const {
@@ -63,8 +65,15 @@ export default function DatasetsPage() {
   });
 
   const filteredTiles = tiles.filter((t) => {
-    if (tileFilter === "high-quality") {
-      return (t.quality_score ?? 0) >= 0.7;
+    const q = t.quality_score ?? 1.0;
+    if (tileFilter === "suitable") {
+      return q >= 0.75;
+    }
+    if (tileFilter === "caution") {
+      return q >= 0.40 && q < 0.75;
+    }
+    if (tileFilter === "poor") {
+      return q < 0.40 || t.is_valid === false;
     }
     return true;
   });
@@ -171,9 +180,11 @@ export default function DatasetsPage() {
                         {s.tile_count} tiles
                       </span>
                       {s.quality_score != null && (
-                        <span className={`font-medium ${qualityColor(s.quality_score)}`}>
-                          Quality: {(s.quality_score * 100).toFixed(0)}%
-                        </span>
+                        <QualityBadge
+                          qualityScore={s.quality_score}
+                          showScore={true}
+                          size="xs"
+                        />
                       )}
                     </div>
                   </motion.div>
@@ -219,6 +230,12 @@ export default function DatasetsPage() {
                   </div>
                 </div>
 
+                {/* Scene Quality Intelligence Widget */}
+                <SceneQualityWidget
+                  sceneId={activeScene.id}
+                  onQualityUpdated={() => refetchTiles()}
+                />
+
                 {/* Spatial Coverage Map Component */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between px-1">
@@ -249,26 +266,49 @@ export default function DatasetsPage() {
                       </h3>
                     </div>
 
-                    <div className="flex items-center gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800 text-xs">
+                    <div className="flex flex-wrap items-center gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800 text-xs">
                       <button
                         onClick={() => setTileFilter("all")}
-                        className={`px-3 py-1 rounded-lg transition-all ${
+                        className={`px-2.5 py-1 rounded-lg transition-all ${
                           tileFilter === "all"
-                            ? "bg-blue-600 text-white font-medium"
+                            ? "bg-blue-600 text-white font-medium shadow-sm"
                             : "text-gray-400 hover:text-white"
                         }`}
                       >
                         All ({tiles.length})
                       </button>
                       <button
-                        onClick={() => setTileFilter("high-quality")}
-                        className={`px-3 py-1 rounded-lg transition-all ${
-                          tileFilter === "high-quality"
-                            ? "bg-blue-600 text-white font-medium"
-                            : "text-gray-400 hover:text-white"
+                        onClick={() => setTileFilter("suitable")}
+                        className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                          tileFilter === "suitable"
+                            ? "bg-emerald-600 text-white font-medium shadow-sm"
+                            : "text-gray-400 hover:text-emerald-300"
                         }`}
                       >
-                        High Quality (≥70%)
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        Suitable (≥75%)
+                      </button>
+                      <button
+                        onClick={() => setTileFilter("caution")}
+                        className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                          tileFilter === "caution"
+                            ? "bg-amber-600 text-white font-medium shadow-sm"
+                            : "text-gray-400 hover:text-amber-300"
+                        }`}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                        Caution
+                      </button>
+                      <button
+                        onClick={() => setTileFilter("poor")}
+                        className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
+                          tileFilter === "poor"
+                            ? "bg-rose-600 text-white font-medium shadow-sm"
+                            : "text-gray-400 hover:text-rose-300"
+                        }`}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                        Poor Quality
                       </button>
                     </div>
                   </div>
@@ -313,6 +353,15 @@ export default function DatasetsPage() {
                               <span className="absolute top-1.5 left-1.5 text-[10px] font-mono bg-black/70 backdrop-blur-sm text-gray-300 px-1.5 py-0.5 rounded border border-white/10">
                                 {t.tile_col},{t.tile_row}
                               </span>
+                              {t.quality_score != null && (
+                                <div className="absolute top-1.5 right-1.5">
+                                  <QualityBadge
+                                    qualityScore={t.quality_score}
+                                    size="xs"
+                                    showScore={false}
+                                  />
+                                </div>
+                              )}
                             </div>
 
                             {/* Tile Footer */}
@@ -321,13 +370,15 @@ export default function DatasetsPage() {
                                 <span className="text-gray-400 font-mono text-[10px]">
                                   {t.tile_size ?? 512}×{t.tile_size ?? 512}px
                                 </span>
-                                {t.quality_score != null && (
-                                  <span
-                                    className={`font-semibold text-[10px] ${qualityColor(
-                                      t.quality_score
-                                    )}`}
-                                  >
-                                    {(t.quality_score * 100).toFixed(0)}%
+                                {t.quality_score != null ? (
+                                  <QualityBadge
+                                    qualityScore={t.quality_score}
+                                    showScore={true}
+                                    size="xs"
+                                  />
+                                ) : (
+                                  <span className="text-[10px] text-gray-500 font-mono">
+                                    Pending
                                   </span>
                                 )}
                               </div>

@@ -33,6 +33,7 @@ from app.schemas.search import (
     VisualSearchResponse,
 )
 from app.services.embedding_service import embedding_service
+from app.services.spectral_analysis import spectral_analysis_service
 from app.services.tile_embedding import tile_embedding_service
 from app.services.vector_store import vector_store
 
@@ -49,6 +50,7 @@ class VisualSearchService:
         self.embedding = embedding_service
         self.tile_embedding = tile_embedding_service
         self.vector_store = vector_store
+        self.spectral = spectral_analysis_service
 
     def _build_qdrant_filter(
         self,
@@ -268,6 +270,9 @@ class VisualSearchService:
                 ],
             }
 
+            thumb_path = tile_obj.thumbnail_path or ""
+            spectral = self.spectral.analyze_image(thumb_path)
+
             provenance_data = prov_map.get(tid) or {
                 "operation": "embedding",
                 "model_name": payload.get("model_name", "DINOv2"),
@@ -275,6 +280,7 @@ class VisualSearchService:
                 "embedding_dimension": 384,
                 "embedded_at": payload.get("embedded_at"),
             }
+            provenance_data["spectral"] = spectral
 
             # Construct reliable thumbnail and preview URLs
             if tile_obj.thumbnail_path and Path(tile_obj.thumbnail_path).exists():
@@ -308,6 +314,7 @@ class VisualSearchService:
                     footprint_geojson=footprint_geojson,
                     thumbnail_url=thumb_url,
                     preview_url=prev_url,
+                    landcover=spectral,
                     provenance=provenance_data,
                 )
             )

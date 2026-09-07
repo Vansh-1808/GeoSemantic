@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
+import { TileQualityPanel } from "@/components/quality/TileQualityPanel";
+import { QualityBadge } from "@/components/quality/QualityBadge";
 
 interface TilePreviewModalProps {
   tileId: string | null;
@@ -28,7 +30,7 @@ export function TilePreviewModal({
   isOpen,
   onClose,
 }: TilePreviewModalProps) {
-  const [activeTab, setActiveTab] = useState<"preview" | "metadata" | "history">("preview");
+  const [activeTab, setActiveTab] = useState<"preview" | "quality" | "metadata" | "history">("preview");
 
   const { data: tile, isLoading } = useQuery<TileDetail>({
     queryKey: ["tile-detail", tileId],
@@ -62,17 +64,11 @@ export function TilePreviewModal({
                     Tile [{tile?.tile_col ?? "—"}, {tile?.tile_row ?? "—"}]
                   </span>
                   {tile?.quality_score != null && (
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded font-mono font-medium border ${
-                        tile.quality_score >= 0.8
-                          ? "bg-emerald-950/60 text-emerald-400 border-emerald-700/50"
-                          : tile.quality_score >= 0.5
-                          ? "bg-amber-950/60 text-amber-400 border-amber-700/50"
-                          : "bg-red-950/60 text-red-400 border-red-700/50"
-                      }`}
-                    >
-                      Quality: {(tile.quality_score * 100).toFixed(0)}%
-                    </span>
+                    <QualityBadge
+                      qualityScore={tile.quality_score}
+                      showScore={true}
+                      size="xs"
+                    />
                   )}
                 </h3>
                 <p className="text-[11px] text-gray-500 font-mono">
@@ -83,7 +79,7 @@ export function TilePreviewModal({
 
             {/* Navigation Tabs */}
             <div className="flex items-center gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800">
-              {(["preview", "metadata", "history"] as const).map((tab) => (
+              {(["preview", "quality", "metadata", "history"] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -242,6 +238,11 @@ export function TilePreviewModal({
                       </a>
                     </div>
                   </div>
+                )}
+
+                {/* QUALITY TAB */}
+                {activeTab === "quality" && (
+                  <TileQualityPanel tileId={tileId} />
                 )}
 
                 {/* METADATA TAB */}

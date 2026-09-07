@@ -38,6 +38,11 @@ from app.schemas.search import (
     VisualSearchRequest,
     VisualSearchResponse,
 )
+from app.schemas.change import (
+    ChangeAnalyzeRequest,
+    ChangeEventResponse,
+    ChangeAnalyzeResponse,
+)
 
 __all__ = [
     "SceneBase",
@@ -71,4 +76,7 @@ __all__ = [
     "SearchFiltersResponse",
     "VisualSearchRequest",
     "VisualSearchResponse",
+    "ChangeAnalyzeRequest",
+    "ChangeEventResponse",
+    "ChangeAnalyzeResponse",
 ]

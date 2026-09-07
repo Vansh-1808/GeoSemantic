@@ -214,6 +214,56 @@ export function TileDetailModal({ tile, onClose }: TileDetailModalProps) {
             </div>
           </div>
 
+          {/* Physical Landcover Optical Analysis */}
+          {tile.landcover && (
+            <div className="border-t border-gray-800 pt-5">
+              <h3 className="text-xs font-semibold text-cyan-300 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-cyan-400" />
+                Physical Landcover Verification (Spectral Ratios)
+              </h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 bg-gray-900/60 rounded-xl border border-cyan-900/40">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-gray-400 flex items-center gap-1">💧 Water Body</span>
+                    <span className="font-mono font-bold text-cyan-300">{tile.landcover.water_pct?.toFixed(1) ?? 0}%</span>
+                  </div>
+                  <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-cyan-400 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(100, tile.landcover.water_pct ?? 0)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-900/60 rounded-xl border border-emerald-900/40">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-gray-400 flex items-center gap-1">🌿 Vegetation</span>
+                    <span className="font-mono font-bold text-emerald-300">{tile.landcover.veg_pct?.toFixed(1) ?? 0}%</span>
+                  </div>
+                  <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-emerald-400 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(100, tile.landcover.veg_pct ?? 0)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3 bg-gray-900/60 rounded-xl border border-amber-900/40">
+                  <div className="flex items-center justify-between text-xs mb-1">
+                    <span className="text-gray-400 flex items-center gap-1">🏙️ Urban / Built-up</span>
+                    <span className="font-mono font-bold text-amber-300">{tile.landcover.urban_pct?.toFixed(1) ?? 0}%</span>
+                  </div>
+                  <div className="w-full bg-gray-800 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-amber-400 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.min(100, tile.landcover.urban_pct ?? 0)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Provenance & Audit Trail Section */}
           <div className="border-t border-gray-800 pt-5">
             <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider mb-3 flex items-center gap-1.5">

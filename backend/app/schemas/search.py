@@ -97,6 +97,9 @@ class SemanticSearchResultItem(BaseModel):
     )
     thumbnail_url: str = Field(..., description="URL to access 128px PNG thumbnail")
     preview_url: str = Field(..., description="URL to access 512px RGB visualization preview")
+    landcover: Optional[Dict[str, float]] = Field(
+        default=None, description="Physical optical landcover breakdown: water_pct, veg_pct, urban_pct"
+    )
     provenance: Optional[Dict[str, Any]] = Field(
         default=None, description="Full audit traceability record from PostgreSQL"
     )

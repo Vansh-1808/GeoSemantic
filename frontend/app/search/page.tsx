@@ -776,7 +776,7 @@ export default function SearchPage() {
             <div className="space-y-3">
               {searchResponse.results.map((item) => {
                 const isSelected = selectedTileId === item.tile_id;
-                const scorePct = (item.similarity_score * 100).toFixed(1);
+                const scorePct = Math.min(100, Math.max(0, item.similarity_score * 100)).toFixed(1);
 
                 return (
                   <div
@@ -846,6 +846,23 @@ export default function SearchPage() {
                               <span className="text-blue-300 flex items-center gap-0.5">
                                 <Cloud className="h-2.5 w-2.5" />
                                 {item.cloud_cover_pct.toFixed(0)}%
+                              </span>
+                            </>
+                          )}
+                          {/* Landcover Badges (Water & Vegetation) */}
+                          {item.landcover?.water_pct != null && item.landcover.water_pct >= 1.0 && (
+                            <>
+                              <span>•</span>
+                              <span className="px-1.5 py-0.5 rounded bg-cyan-950/90 text-cyan-300 border border-cyan-800/70 font-semibold flex items-center gap-0.5">
+                                💧 {item.landcover.water_pct.toFixed(1)}% Water
+                              </span>
+                            </>
+                          )}
+                          {item.landcover?.veg_pct != null && item.landcover.veg_pct >= 2.0 && (
+                            <>
+                              <span>•</span>
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-950/90 text-emerald-300 border border-emerald-800/70 font-semibold flex items-center gap-0.5">
+                                🌿 {item.landcover.veg_pct.toFixed(1)}% Veg
                               </span>
                             </>
                           )}
@@ -921,7 +938,7 @@ export default function SearchPage() {
                     </span>
                   </div>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                    {(selectedTile.similarity_score * 100).toFixed(1)}% Match
+                    {Math.min(100, Math.max(0, selectedTile.similarity_score * 100)).toFixed(1)}% Match
                   </span>
                 </div>
 
@@ -936,6 +953,13 @@ export default function SearchPage() {
                     <p className="text-gray-400 font-mono text-[11px]">
                       Sensor: {selectedTile.sensor || "Sentinel-2"}
                     </p>
+                    {selectedTile.landcover && (
+                      <div className="flex items-center gap-2 font-mono text-[10px] text-cyan-300">
+                        <span>💧 {selectedTile.landcover.water_pct?.toFixed(1) ?? 0}% Water</span>
+                        <span>•</span>
+                        <span className="text-emerald-300">🌿 {selectedTile.landcover.veg_pct?.toFixed(1) ?? 0}% Veg</span>
+                      </div>
+                    )}
                     <p className="text-gray-400 font-mono text-[11px]">
                       Center: [{formatCoord(selectedTile.center_coordinates.lat, 4)}, {formatCoord(selectedTile.center_coordinates.lon, 4)}]
                     </p>

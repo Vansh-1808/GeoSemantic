@@ -72,6 +72,33 @@ npm run dev
 
 Open **http://localhost:3000**
 
+### 6. Fetch Satellite Imagery (Any Location / City)
+
+Download real Sentinel-2 true-color satellite GeoTIFFs (10m resolution, 100% free, zero login or API key required) using Microsoft Planetary Computer's open STAC API:
+
+**Download by City Name:**
+```bash
+# Activate backend environment
+.venv\Scripts\activate
+
+# Fetch imagery for any city (Delhi, Mumbai, Bengaluru, Chennai, Jaipur, Kolkata, Hyderabad, etc.)
+python scripts/fetch_my_area.py --city "Delhi"
+python scripts/fetch_my_area.py --city "Mumbai"
+python scripts/fetch_my_area.py --city "Bengaluru"
+```
+
+**Download by Exact Coordinates (Latitude / Longitude):**
+```bash
+python scripts/fetch_my_area.py --lat 28.5562 --lon 77.1000 --name "delhi_airport" --size 2048
+```
+
+**Download Curated Public Satellite Samples:**
+```bash
+python scripts/download_real_samples.py
+```
+
+*Downloaded GeoTIFF scenes are saved to `backend/data/raw_scenes/`. You can drag-and-drop or ingest them directly through the web UI at `http://localhost:3000`.*
+
 ---
 
 ## Architecture

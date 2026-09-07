@@ -327,19 +327,29 @@ function ImageSearchContent() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png,image/jpeg,image/tiff"
+                accept="image/*,.tif,.tiff,.geotiff,.png,.jpg,.jpeg"
                 onChange={handleFileChange}
                 className="hidden"
               />
 
               {uploadedPreviewUrl ? (
                 <div className="flex flex-col sm:flex-row items-center gap-6">
-                  <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-indigo-500/50 shadow-lg group-hover:scale-105 transition duration-200">
-                    <img
-                      src={uploadedPreviewUrl}
-                      alt="Uploaded query preview"
-                      className="w-full h-full object-cover"
-                    />
+                  <div className="relative w-32 h-32 rounded-xl overflow-hidden border border-indigo-500/50 shadow-lg group-hover:scale-105 transition duration-200 bg-gray-900 flex items-center justify-center">
+                    {uploadedFile?.name.toLowerCase().endsWith(".tif") || uploadedFile?.name.toLowerCase().endsWith(".tiff") ? (
+                      <div className="flex flex-col items-center justify-center p-2 text-center text-indigo-300">
+                        <ImageIcon className="h-10 w-10 text-indigo-400 mb-1" />
+                        <span className="text-[10px] font-mono font-semibold uppercase tracking-wider">GeoTIFF Raster</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={uploadedPreviewUrl}
+                        alt="Uploaded query preview"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                    )}
                     <div className="absolute top-1 right-1 bg-indigo-950/80 px-1.5 py-0.5 rounded text-[9px] font-mono text-indigo-300">
                       Query
                     </div>
@@ -397,7 +407,7 @@ function ImageSearchContent() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-xs text-gray-400">
-                Select any existing tile from the archive to use as the visual similarity template:
+                Select any existing tile from the archive to instantly search visual neighbors:
               </p>
               {selectedArchiveTileId && (
                 <span className="text-xs font-mono text-indigo-400 bg-indigo-950 px-2 py-0.5 rounded border border-indigo-800">
@@ -420,6 +430,7 @@ function ImageSearchContent() {
                       onClick={() => {
                         setSelectedArchiveTileId(tile.id);
                         api.getTile(tile.id).then(setSelectedArchiveTile);
+                        executeTileSearch(tile.id);
                       }}
                       className={`relative aspect-square rounded-lg overflow-hidden cursor-pointer border transition-all ${
                         isSelected
@@ -431,6 +442,10 @@ function ImageSearchContent() {
                         src={tile.thumbnail_url || api.getThumbnailUrl(tile.id)}
                         alt={`Tile ${tile.tile_col},${tile.tile_row}`}
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = api.getThumbnailUrl(tile.id);
+                        }}
                       />
                       <div className="absolute bottom-0 inset-x-0 bg-black/70 text-[8px] font-mono text-gray-300 text-center py-0.5">
                         {tile.tile_col},{tile.tile_row}
@@ -674,7 +689,7 @@ function ImageSearchContent() {
             <div className="space-y-3">
               {searchResponse.results.map((item) => {
                 const isSelected = selectedResultTileId === item.tile_id;
-                const scorePct = (item.similarity_score * 100).toFixed(1);
+                const scorePct = Math.min(100, Math.max(0, item.similarity_score * 100)).toFixed(1);
 
                 return (
                   <div
@@ -693,7 +708,8 @@ function ImageSearchContent() {
                         alt={`Tile ${item.tile_col},${item.tile_row}`}
                         className="w-full h-full object-cover transition duration-300 group-hover:scale-105"
                         onError={(e) => {
-                          e.currentTarget.style.display = "none";
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = api.getThumbnailUrl(item.tile_id);
                         }}
                       />
                       <div className="absolute top-1 left-1 bg-gray-950/80 px-1.5 py-0.5 rounded text-[9px] font-mono text-gray-300 border border-gray-800">
@@ -732,6 +748,23 @@ function ImageSearchContent() {
                           <span className={qualityColor(item.quality_score)}>
                             Q: {item.quality_score != null ? `${(item.quality_score * 100).toFixed(0)}%` : "—"}
                           </span>
+                          {/* Landcover Badges */}
+                          {item.landcover?.water_pct != null && item.landcover.water_pct >= 1.0 && (
+                            <>
+                              <span>•</span>
+                              <span className="px-1.5 py-0.5 rounded bg-cyan-950/90 text-cyan-300 border border-cyan-800/70 font-semibold flex items-center gap-0.5">
+                                💧 {item.landcover.water_pct.toFixed(1)}% Water
+                              </span>
+                            </>
+                          )}
+                          {item.landcover?.veg_pct != null && item.landcover.veg_pct >= 2.0 && (
+                            <>
+                              <span>•</span>
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-950/90 text-emerald-300 border border-emerald-800/70 font-semibold flex items-center gap-0.5">
+                                🌿 {item.landcover.veg_pct.toFixed(1)}% Veg
+                              </span>
+                            </>
+                          )}
                         </div>
                       </div>
 

@@ -50,11 +50,28 @@ class EmbeddingService:
         text: str,
         model_name: str = "RemoteCLIP",
         normalize: bool = True,
+        use_ensemble: bool = True,
     ) -> List[float]:
         """
         Generate embedding vector for a single natural language text query.
+        Applies satellite-domain prompt ensembling to align text with remote sensing features.
         Returns a 512-dimensional float vector for RemoteCLIP.
         """
+        if use_ensemble and model_name.lower() in ("remoteclip", "clip"):
+            templates = [
+                text.strip(),
+                f"a satellite photo of {text.strip()}",
+                f"satellite imagery showing {text.strip()}",
+                f"aerial view of {text.strip()}",
+            ]
+            embeddings = self.embed_texts(templates, model_name=model_name, normalize=True)
+            arr = np.mean(embeddings, axis=0)
+            if normalize:
+                norm = np.linalg.norm(arr)
+                if norm > 0:
+                    arr = arr / norm
+            return arr.tolist()
+
         embeddings = self.embed_texts([text], model_name=model_name, normalize=normalize)
         return embeddings[0]
 
@@ -182,10 +199,44 @@ class EmbeddingService:
             p = Path(item)
             if not p.exists():
                 raise FileNotFoundError(f"Image file not found: {p}")
-            return Image.open(p).convert("RGB")
+            try:
+                return Image.open(p).convert("RGB")
+            except Exception:
+                try:
+                    import rasterio
+                    with rasterio.open(p) as src:
+                        if src.count >= 3:
+                            rgb = np.stack([src.read(1), src.read(2), src.read(3)], axis=-1)
+                        else:
+                            gray = src.read(1)
+                            rgb = np.stack([gray, gray, gray], axis=-1)
+                        if rgb.dtype != np.uint8:
+                            p2, p98 = np.percentile(rgb, (2, 98))
+                            rgb = np.clip((rgb - p2) / max(p98 - p2, 1e-5) * 255.0, 0, 255).astype(np.uint8)
+                        return Image.fromarray(rgb, mode="RGB")
+                except Exception as exc:
+                    raise ValueError(f"Failed to read image at {p}: {exc}")
 
         if isinstance(item, bytes):
-            return Image.open(io.BytesIO(item)).convert("RGB")
+            try:
+                return Image.open(io.BytesIO(item)).convert("RGB")
+            except Exception:
+                try:
+                    import rasterio
+                    from rasterio.io import MemoryFile
+                    with MemoryFile(item) as memfile:
+                        with memfile.open() as src:
+                            if src.count >= 3:
+                                rgb = np.stack([src.read(1), src.read(2), src.read(3)], axis=-1)
+                            else:
+                                gray = src.read(1)
+                                rgb = np.stack([gray, gray, gray], axis=-1)
+                            if rgb.dtype != np.uint8:
+                                p2, p98 = np.percentile(rgb, (2, 98))
+                                rgb = np.clip((rgb - p2) / max(p98 - p2, 1e-5) * 255.0, 0, 255).astype(np.uint8)
+                            return Image.fromarray(rgb, mode="RGB")
+                except Exception as exc:
+                    raise ValueError(f"Failed to decode image bytes: {exc}")
 
         raise TypeError(f"Unsupported image input type: {type(item)}")
 

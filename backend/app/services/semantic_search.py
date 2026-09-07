@@ -29,6 +29,7 @@ from app.schemas.search import (
     SemanticSearchResultItem,
 )
 from app.services.embedding_service import embedding_service
+from app.services.spectral_analysis import spectral_analysis_service
 from app.services.vector_store import vector_store
 
 logger = get_logger(__name__)
@@ -43,6 +44,7 @@ class SemanticSearchService:
     def __init__(self) -> None:
         self.embedding = embedding_service
         self.vector_store = vector_store
+        self.spectral = spectral_analysis_service
 
     async def search(
         self,
@@ -253,6 +255,9 @@ class SemanticSearchService:
                         "details": pr.details,
                     }
 
+            intent = self.spectral.parse_query_intent(req.query)
+            candidate_items: List[Tuple[float, SemanticSearchResultItem]] = []
+
             for point in filtered_points:
                 tid = uuid.UUID(point.id)
                 payload = point.payload or {}
@@ -294,12 +299,31 @@ class SemanticSearchService:
                     ],
                 }
 
+                # Extract physical spectral ratios
+                thumb_path = tile_obj.thumbnail_path or ""
+                spectral = self.spectral.analyze_image(thumb_path)
+
+                # Compute fused score and calibrated display percentage
+                raw_score = float(point.score)
+                fused_score, calibrated_score = self.spectral.compute_fused_score(
+                    raw_similarity=raw_score,
+                    spectral=spectral,
+                    intent=intent,
+                )
+
                 provenance_data = prov_map.get(tid) or {
                     "operation": "embedding",
                     "model_name": payload.get("model_name", "RemoteCLIP"),
                     "model_version": payload.get("model_version", "ViT-B-32"),
                     "embedding_dimension": 512,
                     "embedded_at": payload.get("embedded_at"),
+                }
+                provenance_data["spectral"] = {
+                    "water_pct": spectral["water_pct"],
+                    "veg_pct": spectral["veg_pct"],
+                    "urban_pct": spectral["urban_pct"],
+                    "raw_similarity": round(raw_score, 4),
+                    "fused_score": fused_score,
                 }
 
                 # Construct reliable thumbnail and preview URLs
@@ -316,30 +340,35 @@ class SemanticSearchService:
                 else:
                     prev_url = f"/api/tiles/{tid}/preview"
 
-                results.append(
-                    SemanticSearchResultItem(
-                        tile_id=tid,
-                        similarity_score=round(float(point.score), 4),
-                        rank=len(results) + 1,
-                        scene_id=scene_id,
-                        scene_name=scene_filename,
-                        sensor=sensor,
-                        acquisition_date=acq_date,
-                        quality_score=quality_score,
-                        cloud_cover_pct=cloud_pct,
-                        tile_col=tile_col,
-                        tile_row=tile_row,
-                        center_coordinates=center_coords,
-                        bbox=bbox,
-                        footprint_geojson=footprint_geojson,
-                        thumbnail_url=thumb_url,
-                        preview_url=prev_url,
-                        provenance=provenance_data,
-                    )
+                item = SemanticSearchResultItem(
+                    tile_id=tid,
+                    similarity_score=calibrated_score,
+                    rank=0,  # Assigned after reranking
+                    scene_id=scene_id,
+                    scene_name=scene_filename,
+                    sensor=sensor,
+                    acquisition_date=acq_date,
+                    quality_score=quality_score,
+                    cloud_cover_pct=cloud_pct,
+                    tile_col=tile_col,
+                    tile_row=tile_row,
+                    center_coordinates=center_coords,
+                    bbox=bbox,
+                    footprint_geojson=footprint_geojson,
+                    thumbnail_url=thumb_url,
+                    preview_url=prev_url,
+                    landcover=spectral,
+                    provenance=provenance_data,
                 )
+                candidate_items.append((fused_score, item))
 
-                if len(results) >= req.top_k:
-                    break
+            # Rerank candidates by fused score (highest relevance first)
+            candidate_items.sort(key=lambda x: x[0], reverse=True)
+
+            # Assign 1-based ranks to the top_k results
+            for idx, (_, item) in enumerate(candidate_items[:req.top_k], start=1):
+                item.rank = idx
+                results.append(item)
 
         total_time_ms = round((time.perf_counter() - t0) * 1000, 2)
 

@@ -189,6 +189,92 @@ export interface TileListResponse {
   page_size: number;
 }
 
+// ── Quality Assessment Schemas ───────────────────────────────
+
+export interface TileQuality {
+  tile_id: string;
+  quality_score: number;
+  usable_for_change_analysis: boolean;
+  suitability: "Suitable" | "Caution" | "Poor Quality";
+  cloud_score: number;
+  shadow_score: number;
+  nodata_score: number;
+  noise_score: number;
+  saturation_score: number;
+  cloud_cover_pct: number;
+  nodata_ratio: number;
+  analysis_method: string;
+  satellite_mask_available: boolean;
+  caveats: string[];
+}
+
+export interface SceneQuality {
+  scene_id: string;
+  quality_score: number;
+  suitability: "Suitable" | "Caution" | "Poor Quality";
+  tile_count: number;
+  tiles_suitable: number;
+  tiles_caution: number;
+  tiles_poor: number;
+  avg_cloud_cover_pct: number;
+  avg_nodata_ratio: number;
+  usable_for_change_analysis: boolean;
+  quality_details: {
+    suitable_ratio?: number;
+    avg_shadow_score?: number;
+    avg_noise_score?: number;
+    avg_saturation_score?: number;
+    [key: string]: any;
+  };
+}
+
+export interface SceneComputeQualityResponse {
+  scene_id: string;
+  tiles_computed: number;
+  quality_score: number;
+  suitability: string;
+  summary: SceneQuality;
+}
+
+// ── Change Detection Schemas ────────────────────────────────
+
+export interface ChangeAnalyzeRequest {
+  aoi_wkt?: string | null;
+  start_date: string;
+  end_date: string;
+  limit?: number;
+  query?: string;
+}
+
+export interface ChangeEventResponse {
+  id: string;
+  before_tile_id: string | null;
+  after_tile_id: string | null;
+  before_date: string | null;
+  after_date: string | null;
+  center_lon: number | null;
+  center_lat: number | null;
+  change_type: string | null;
+  final_confidence: number | null;
+  visual_change_score: number | null;
+  semantic_change_score: number | null;
+  registration_quality: number | null;
+  is_suppressed: boolean;
+  review_status: string;
+  detected_at: string;
+  updated_at: string;
+  evidence?: Record<string, any> | null;
+  confidence_breakdown?: Record<string, any> | null;
+}
+
+export interface ChangeAnalyzeResponse {
+  message: string;
+  candidates_found: number;
+  events: ChangeEventResponse[];
+}
+
+
+
 export interface ProcessSceneRequest {
   tile_size?: number;
   overlap_px?: number;
@@ -242,6 +328,11 @@ export interface SemanticSearchResultItem {
   } | null;
   thumbnail_url: string;
   preview_url: string;
+  landcover?: {
+    water_pct?: number;
+    veg_pct?: number;
+    urban_pct?: number;
+  } | null;
   provenance: {
     operation?: string;
     model_name?: string;
@@ -314,9 +405,21 @@ class GeoSemanticAPI {
   private client: AxiosInstance;
 
   constructor() {
+    const isBrowser = typeof window !== "undefined";
+    const isLocalhost =
+      isBrowser &&
+      (window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1");
+
+    const baseURL =
+      process.env.NEXT_PUBLIC_API_URL ||
+      (isLocalhost ? "http://localhost:8000/api" : "/api");
+
     this.client = axios.create({
-      baseURL: "/api",
-      timeout: 60_000,
+      baseURL,
+      timeout: 300_000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
     });
   }
 
@@ -402,11 +505,13 @@ class GeoSemanticAPI {
   }
 
   getThumbnailUrl(tileId: string): string {
-    return `/api/tiles/${tileId}/thumbnail`;
+    const base = this.client.defaults.baseURL || "/api";
+    return `${base}/tiles/${tileId}/thumbnail`;
   }
 
   getPreviewUrl(tileId: string): string {
-    return `/api/tiles/${tileId}/preview`;
+    const base = this.client.defaults.baseURL || "/api";
+    return `${base}/tiles/${tileId}/preview`;
   }
 
   // ── AI Models ─────────────────────────────────────────────
@@ -510,8 +615,54 @@ class GeoSemanticAPI {
 
     const res = await this.client.post("/search/image", form, {
       params,
-      headers: { "Content-Type": "multipart/form-data" },
       timeout: 60_000,
+    });
+    return res.data;
+  }
+
+  // ── Quality Assessment & Intelligence ─────────────────────
+
+  async getQualityForTile(tileId: string): Promise<TileQuality> {
+    const res = await this.client.get(`/quality/tile/${tileId}`);
+    return res.data;
+  }
+
+  async computeQualityForTile(tileId: string): Promise<TileQuality> {
+    const res = await this.client.post(`/quality/tile/${tileId}/compute`);
+    return res.data;
+  }
+
+  async getQualityForScene(sceneId: string): Promise<SceneQuality> {
+    const res = await this.client.get(`/quality/scene/${sceneId}`);
+    return res.data;
+  }
+
+  async computeQualityForScene(sceneId: string): Promise<SceneComputeQualityResponse> {
+    const res = await this.client.post(`/quality/scene/${sceneId}/compute`);
+    return res.data;
+  }
+
+  // ── Change Detection ──────────────────────────────────────
+
+  async analyzeChange(req: ChangeAnalyzeRequest): Promise<ChangeAnalyzeResponse> {
+    const res = await this.client.post("/change/analyze", req, {
+      timeout: 120_000,
+    });
+    return res.data;
+  }
+
+  async getChangeEvent(changeId: string): Promise<ChangeEventResponse> {
+    const res = await this.client.get(`/change/${changeId}`);
+    return res.data;
+  }
+
+  async listChangeEvents(
+    limit = 50,
+    skip = 0,
+    min_confidence = 0.0
+  ): Promise<ChangeEventResponse[]> {
+    const res = await this.client.get("/change", {
+      params: { limit, skip, min_confidence },
     });
     return res.data;
   }

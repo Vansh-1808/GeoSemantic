@@ -251,7 +251,11 @@ class ModelManager:
         if checkpoint_path and checkpoint_path.is_file():
             meta.last_loaded_path = checkpoint_path
             logger.info("loading_dinov2_weights_from_file", path=str(checkpoint_path))
-            state_dict = torch.load(checkpoint_path, map_location="cpu")
+            if str(checkpoint_path).endswith(".safetensors"):
+                from safetensors.torch import load_file
+                state_dict = load_file(str(checkpoint_path))
+            else:
+                state_dict = torch.load(checkpoint_path, map_location="cpu")
             if isinstance(state_dict, dict) and "state_dict" in state_dict:
                 state_dict = state_dict["state_dict"]
             clean_sd = {k.replace("module.", ""): v for k, v in state_dict.items()}

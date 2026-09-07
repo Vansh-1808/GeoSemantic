@@ -2,7 +2,7 @@
 FastAPI application entry point.
 Mounts all routers, configures middleware, and manages startup/shutdown lifecycle.
 """
-# Reload trigger v2
+# Reload trigger: change routes updated without duplicate prefix
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -79,7 +79,14 @@ def create_app() -> FastAPI:
     # ── CORS ──────────────────────────────────────────────────
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_url, "http://localhost:3000"],
+        allow_origins=[
+            settings.frontend_url,
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+        ],
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -107,7 +114,17 @@ def create_app() -> FastAPI:
     )
 
     # ── Routers ───────────────────────────────────────────────
-    from app.api.routes import embedding, health, ingest, models, scenes, search, tiles  # noqa: F401
+    from app.api.routes import (  # noqa: F401
+        embedding,
+        health,
+        ingest,
+        models,
+        quality,
+        scenes,
+        search,
+        tiles,
+        change,
+    )
 
     app.include_router(health.router, prefix="/api", tags=["health"])
     app.include_router(ingest.router, prefix="/api/ingest", tags=["ingestion"])
@@ -123,6 +140,10 @@ def create_app() -> FastAPI:
     app.include_router(embedding.router, prefix="/vector", tags=["vector-root"])
     app.include_router(search.router, prefix="/api/search", tags=["search"])
     app.include_router(search.router, prefix="/search", tags=["search-root"])
+    app.include_router(quality.router, prefix="/api/quality", tags=["quality"])
+    app.include_router(quality.router, prefix="/quality", tags=["quality-root"])
+    app.include_router(change.router, prefix="/api/change", tags=["change"])
+    app.include_router(change.router, prefix="/change", tags=["change-root"])
 
     return app
 
