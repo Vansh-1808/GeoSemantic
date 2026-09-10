@@ -135,6 +135,7 @@ def create_app() -> FastAPI:
     app.include_router(models.router, prefix="/api/models", tags=["models"])
     app.include_router(models.router, prefix="/models", tags=["models-root"])
     app.include_router(embedding.router, prefix="/api/embedding", tags=["embedding"])
+    app.include_router(embedding.router, prefix="/api/embeddings", tags=["embeddings-alias"])
     app.include_router(embedding.router, prefix="/embedding", tags=["embedding-root"])
     app.include_router(embedding.router, prefix="/api/vector", tags=["vector"])
     app.include_router(embedding.router, prefix="/vector", tags=["vector-root"])

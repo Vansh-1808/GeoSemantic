@@ -11,6 +11,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import os
+try:
+    import pyproj
+    proj_dir = pyproj.datadir.get_data_dir()
+    os.environ["PROJ_LIB"] = proj_dir
+    os.environ["PROJ_DATA"] = proj_dir
+except Exception:
+    pass
+
 import numpy as np
 import rasterio
 from PIL import Image
@@ -97,6 +106,9 @@ async def ingest_scene(
             ingestion_status="PROCESSING",
             raw_metadata=meta.get("raw_tags"),
         )
+        session.add(scene)
+        await session.flush()
+
         # Set PostGIS geometry footprint (polygon in EPSG:4326)
         w, s, e, n = meta["bbox_4326"]
         footprint_wkt = box(w, s, e, n).wkt
@@ -108,8 +120,6 @@ async def ingest_scene(
             ),
             {"wkt": footprint_wkt, "id": str(scene_id)},
         )
-        session.add(scene)
-        await session.flush()
 
         # ── Stage 5: Generate tiles ───────────────────────────
         await update_progress(30.0, "Generating tiles...")

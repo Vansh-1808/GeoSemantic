@@ -195,7 +195,7 @@ class ChangeDetectionService:
             if event:
                 new_events.append(event)
 
-            if len(new_events) >= request.limit * 2:
+            if len(new_events) >= max(request.limit * 10, 200):
                 break
 
         if not new_events:
@@ -371,7 +371,7 @@ class ChangeDetectionService:
                     change_type = "waterfront_construction"
                     explanation_parts.append(f"Waterfront development verified: {max_water:.1f}% water proximity with +{delta_urban}% built-up shift")
                 elif max_water < 1.0:
-                    query_match_score = max(0.15, query_match_score - 0.20)
+                    query_match_score = max(0.08, query_match_score - 0.40)
                     explanation_parts.append("Inland observation (no water body in proximity)")
 
             elif requires_water:
@@ -441,6 +441,8 @@ class ChangeDetectionService:
             "before_thumbnail_url": before_thumb,
             "after_thumbnail_url": after_thumb,
             "diff_thumbnail_url": diff_thumb_url,
+            "before_scene_id": str(before_tile.scene_id),
+            "after_scene_id": str(after_tile.scene_id),
         }
 
         confidence_breakdown = {

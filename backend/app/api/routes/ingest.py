@@ -183,10 +183,17 @@ async def delete_scene(
         raise HTTPException(status_code=404, detail="Scene not found")
 
     # Remove tile directory from disk
-    for subdir in [settings.tiles_dir, settings.thumbnails_dir]:
+    for subdir in [settings.tiles_dir, settings.thumbnails_dir, settings.previews_dir]:
         scene_dir = subdir / str(scene_id)
         if scene_dir.exists():
             shutil.rmtree(scene_dir, ignore_errors=True)
+
+    # Remove vectors from Qdrant
+    try:
+        from app.services.vector_store import vector_store
+        vector_store.delete_scene_points(str(scene_id))
+    except Exception as exc:
+        logger.warning("failed_to_delete_qdrant_points_on_scene_delete", scene_id=str(scene_id), error=str(exc))
 
     await session.delete(scene)
     await session.commit()
@@ -219,6 +226,19 @@ async def _run_ingestion_background(file_path: Path, job_id: uuid.UUID) -> None:
             if job:
                 job.related_entity_id = scene.id
                 await session.commit()
+
+            # Auto-generate tile embeddings so the new custom dataset is immediately searchable
+            try:
+                from app.services.tile_embedding import tile_embedding_service
+                logger.info("auto_generating_embeddings_for_ingested_scene", scene_id=str(scene.id))
+                await tile_embedding_service.generate_scene_embeddings(
+                    scene_id=scene.id,
+                    session=session,
+                    force_reembed=False,
+                    batch_size=8,
+                )
+            except Exception as emb_exc:
+                logger.warning("auto_embedding_generation_failed", scene_id=str(scene.id), error=str(emb_exc))
 
         except Exception as exc:
             logger.exception("background_ingestion_failed", error=str(exc))
