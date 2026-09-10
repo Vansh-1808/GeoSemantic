@@ -240,8 +240,8 @@ export interface SceneComputeQualityResponse {
 
 export interface ChangeAnalyzeRequest {
   aoi_wkt?: string | null;
-  start_date: string;
-  end_date: string;
+  start_date?: string;
+  end_date?: string;
   limit?: number;
   query?: string;
 }

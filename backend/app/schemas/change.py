@@ -5,9 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ChangeAnalyzeRequest(BaseModel):
     """Request to analyze changes in a specific AOI (or across entire archive) and time range."""
-    aoi_wkt: Optional[str] = Field(None, description="Optional WKT polygon. If omitted, analyzes all overlapping imagery in the time range.")
-    start_date: datetime
-    end_date: datetime
+    aoi_wkt: Optional[str] = Field(None, description="Optional WKT polygon. If omitted, analyzes all overlapping imagery across the whole archive.")
+    start_date: Optional[datetime] = Field(None, description="Optional start datetime. Defaults to beginning of archive.")
+    end_date: Optional[datetime] = Field(None, description="Optional end datetime. Defaults to end of archive.")
     limit: int = Field(default=50, description="Max number of candidate pairs to process")
     query: Optional[str] = Field(None, description="Optional natural language query describing targeted change, e.g. 'New construction near water bodies'")
 

@@ -35,12 +35,14 @@ import {
 } from "lucide-react";
 
 const QUERY_SUGGESTIONS = [
-  "Commercial airport runway & aprons",
-  "Dense residential buildings and road grid",
-  "Harbor docks with cargo container vessels",
-  "Agricultural farmland and irrigation channels",
-  "Industrial chemical plant with storage tanks",
-  "River channel with highway bridge crossing",
+  "Water bodies, lakes and river reservoirs",
+  "Varanasi Ganga river channel",
+  "Kashmir Dal Lake in Srinagar",
+  "Sardar Sarovar Dam water reservoir",
+  "Noida Jewar airport runway and terminal",
+  "Bhadla solar park solar panels",
+  "Agricultural farmland and green vegetation",
+  "Himalayan mountains and Ladakh Pangong lake",
 ];
 
 export default function SearchPage() {

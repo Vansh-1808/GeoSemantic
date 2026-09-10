@@ -11,7 +11,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from qdrant_client import models
 from sqlalchemy import distinct, func, select, text
@@ -183,7 +183,7 @@ class SemanticSearchService:
         # Step 3: Query Qdrant vector index
         t_vec_start = time.perf_counter()
         collection_name = settings.qdrant_remoteclip_collection
-        fetch_limit = min(200, max(req.top_k * 4, 50))
+        fetch_limit = min(1000, max(req.top_k * 20, 500))
         scored_points = self.vector_store.search_vectors(
             collection_name=collection_name,
             query_vector=query_vector,
@@ -192,6 +192,18 @@ class SemanticSearchService:
             with_payload=True,
         )
         vector_search_time_ms = round((time.perf_counter() - t_vec_start) * 1000, 2)
+
+        # Log the raw score range for diagnostics
+        if scored_points:
+            raw_scores = [float(p.score) for p in scored_points]
+            logger.info(
+                "qdrant_scores_range",
+                query=req.query[:50],
+                total=len(raw_scores),
+                min_score=round(min(raw_scores), 4),
+                max_score=round(max(raw_scores), 4),
+                mean_score=round(sum(raw_scores)/len(raw_scores), 4),
+            )
 
         # Step 4: PostGIS Exact Spatial Verification (if polygon AOI provided)
         spatial_filter_time_ms = 0.0
@@ -309,6 +321,8 @@ class SemanticSearchService:
                     raw_similarity=raw_score,
                     spectral=spectral,
                     intent=intent,
+                    scene_name=scene_filename,
+                    query_text=req.query,
                 )
 
                 provenance_data = prov_map.get(tid) or {

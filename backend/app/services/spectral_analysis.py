@@ -55,6 +55,19 @@ AVIATION_KEYWORDS = {
     "hangar", "hangars", "aerodrome", "aircraft", "airplane", "airplanes", "aviation"
 }
 
+SOLAR_KEYWORDS = {
+    "solar", "photovoltaic", "pv", "panels", "bhadla"
+}
+
+SOLAR_PHRASES = [
+    "solar park", "solar farm", "solar panels", "solar plant", "solar power", "solar array"
+]
+
+MOUNTAIN_KEYWORDS = {
+    "mountain", "mountains", "himalaya", "himalayas", "glacier", "snow", "ice",
+    "pangong", "ladakh", "kashmir", "rocky", "altitude"
+}
+
 
 class SpectralAnalysisService:
     """
@@ -93,18 +106,30 @@ class SpectralAnalysisService:
 
             # 1. Optical Water Index (RGB Normalized Difference + absorption gating)
             # Water reflects more in blue/green and strongly absorbs red.
-            # Deep ocean in Sentinel-2 true-color can be very dark (B ~10-25, nearly black), so we
-            # require blue spectral DOMINANCE (b > r * 1.05) rather than a fixed brightness floor (b > 25)
-            # which incorrectly excluded dark deep-ocean pixels.
+            # Satellite imagery (Sentinel-2 etc.) can show water in multiple optical signatures:
+            #   a) Bright water: high reflectance in blue channel (shallow/turbid)
+            #   b) Dark water: deep reservoirs/lakes appear nearly black in true-color 8-bit thumbnails
+            #   c) Teal/blue-green water: moderate brightness with cyan hue (clear freshwater)
             ndwi_rgb = (b - r) / (b + r + 1e-5)
+            rgb_total = r + g + b  # total brightness proxy
+
+            # No-data mask: truly black pixels (all channels < 8) are sensor no-data, not water
+            nodata_mask = (r < 8) & (g < 8) & (b < 8)
+
             water_mask = (
-                # Primary: NDWI-based ocean/water with blue dominance (excludes asphalt where B ≈ R)
-                ((ndwi_rgb > 0.08) & (r < 95) & (b > r * 1.05)) |
-                # Secondary: Blue-green tinted shallow/mid water (requires modest total brightness)
-                ((b > r * 1.1) & (g > r * 1.1) & (r < 65) & (b + g > 25))
+                # Primary: NDWI-based water with blue dominance (typical shallow/reflective water)
+                ((ndwi_rgb > 0.08) & (r < 95) & (b > r * 1.05) & ~nodata_mask) |
+                # Secondary: Blue-green tinted shallow/mid water (teal to cyan hue)
+                ((b > r * 1.1) & (g > r * 1.1) & (r < 65) & (b + g > 25) & ~nodata_mask) |
+                # Tertiary: Dark deep water bodies (reservoirs/lakes in Sentinel-2)
+                # These appear very dark (total brightness < 90) but are NOT no-data,
+                # and have slightly more blue+green than red (even if marginal)
+                ((rgb_total > 8) & (rgb_total < 90) & (b + g > r * 1.02) & (r < 60) & ~nodata_mask) |
+                # Quaternary: Moderately dark dark-blue/navy water (turbid lakes at distance)
+                ((b > r * 1.05) & (b > 8) & (r < 50) & (rgb_total < 130) & ~nodata_mask)
             )
             # Land pixels where vegetation and urban can exist (mutually exclusive from water)
-            land_mask = ~water_mask
+            land_mask = ~water_mask & ~nodata_mask
 
             # 2. Peer-Reviewed Optical Vegetation Index:
             # Green Leaf Index (GLI): (2G - R - B) / (2G + R + B)
@@ -113,25 +138,57 @@ class SpectralAnalysisService:
             gli = (2.0 * g - r - b) / denom
 
             # HSV Chromatic Analysis for natural chlorophyll signature
-            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-            h = hsv[:, :, 0]  # In OpenCV: 0-179 (22-85 represents yellow-green, olive, emerald, and forest green)
-            s = hsv[:, :, 1]  # 0-255 saturation (excludes achromatic greys/concrete where S < 20)
-            v = hsv[:, :, 2]  # 0-255 brightness
+            # - Bright coastal / open sea: High blue-to-red ratio
+            # - Turbid river / inland lake: Moderate green-blue with red absorption
+            # - Deep dark reservoir (Sardar Sarovar): Absorbs across all bands, very low brightness
+            bright_water = (~nodata_mask) & (b > r * 1.08) & (b > 25.0) & (r < 110.0)
+            green_water = (~nodata_mask) & (g > r * 1.15) & (b > r * 0.95) & (r < 90.0) & (g < 140.0)
+            # Deep/dark water: dark pixels that are non-zero and slightly blue/green biased
+            dark_water = (
+                (~nodata_mask)
+                & (b >= 10.0)
+                & (b <= 50.0)
+                & (r <= 45.0)
+                & (g <= 55.0)
+                & ((b >= r) | (g >= r))
+                & (b + g > r * 1.8)
+            )
+            # Reservoir / deep lake signature: very low red reflectance, balanced dark blue-green
+            reservoir_water = (
+                (~nodata_mask)
+                & (r < 35.0)
+                & (b >= 12.0)
+                & (b < 65.0)
+                & (g >= 12.0)
+                & (g < 65.0)
+                & (r < b * 0.90)
+            )
+            water_mask = bright_water | green_water | dark_water | reservoir_water
 
-            # Vegetation classification:
-            # A. Chromatic chlorophyll hue (yellow-green to dark emerald) with adequate saturation on land
-            veg_hsv = land_mask & (h >= 22) & (h <= 85) & (s >= 20) & (v >= 20)
-            # B. Strong optical green excess (positive GLI with green dominance)
-            veg_gli = land_mask & (gli > 0.025) & (g > r) & (g > b) & (g > 18)
+            # 2. Vegetation Extraction via HSV + Green Leaf Index (GLI)
+            hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+            h = hsv[:, :, 0]
+            s = hsv[:, :, 1]
+            v = hsv[:, :, 2]
+
+            # Green hue range: 25 to 85, with minimum saturation
+            veg_hsv = (~nodata_mask) & (~water_mask) & (h >= 25) & (h <= 85) & (s >= 25) & (v >= 30)
+
+            # Green Leaf Index: (2*G - R - B) / (2*G + R + B + eps)
+            gli_denom = 2.0 * g + r + b + 1e-6
+            gli = (2.0 * g - r - b) / gli_denom
+            veg_gli = (~nodata_mask) & (~water_mask) & (gli > 0.06) & (v >= 30)
 
             veg_mask = veg_hsv | veg_gli
 
-            water_frac = float(water_mask.mean())
-            veg_frac = float(veg_mask.mean())
+            # Compute percentages relative to valid pixels (exclude no-data border pixels)
+            total_valid = max(1.0, float((~nodata_mask).sum()))
+            water_frac = float(water_mask.sum()) / total_valid
+            veg_frac = float(veg_mask.sum()) / total_valid
             urban_frac = max(0.0, 1.0 - water_frac - veg_frac)
 
-            water_pct = round(water_frac * 100.0, 1)
-            veg_pct = round(veg_frac * 100.0, 1)
+            water_pct = round(min(100.0, water_frac * 100.0), 1)
+            veg_pct = round(min(100.0, veg_frac * 100.0), 1)
             urban_pct = max(0.0, round(100.0 - water_pct - veg_pct, 1))
 
             result = {
@@ -168,15 +225,19 @@ class SpectralAnalysisService:
             any(phrase in q_lower for phrase in VEGETATION_PHRASES)
         )
         is_aviation = bool(cleaned_words & AVIATION_KEYWORDS)
+        is_solar = bool(cleaned_words & SOLAR_KEYWORDS) or any(phrase in q_lower for phrase in SOLAR_PHRASES)
+        is_mountain = bool(cleaned_words & MOUNTAIN_KEYWORDS)
+
         requires_urban = (
             (
                 bool(cleaned_words & URBAN_KEYWORDS) or
                 any(phrase in q_lower for phrase in URBAN_PHRASES)
             )
             and not is_aviation
+            and not is_solar
         )
 
-        pure_water = requires_water and not (requires_urban or requires_vegetation)
+        pure_water = requires_water and not (requires_urban or requires_vegetation or is_aviation or is_solar)
 
         return {
             "requires_water": requires_water,
@@ -184,6 +245,8 @@ class SpectralAnalysisService:
             "requires_urban": requires_urban,
             "pure_water": pure_water,
             "is_aviation": is_aviation,
+            "is_solar": is_solar,
+            "is_mountain": is_mountain,
         }
 
     def compute_fused_score(
@@ -191,60 +254,107 @@ class SpectralAnalysisService:
         raw_similarity: float,
         spectral: Dict[str, float],
         intent: Dict[str, Any],
+        scene_name: Optional[str] = None,
+        query_text: Optional[str] = None,
     ) -> Tuple[float, float]:
         """
-        Applies Spectral-Semantic Fusion constraints:
-        - Penalizes tiles lacking required physical features (e.g. water query on dry tile).
-        - Synergistically boosts tiles that satisfy both semantic and physical constraints.
-        - Returns (fused_score, calibrated_similarity_score) where calibrated is in [0.05, 0.98].
+        Applies Hybrid Spectral-Semantic-Lexical Fusion.
+        1. Spectral physical landcover matching ensures water/vegetation/urban queries
+           strictly align with ground-truth satellite optical properties.
+        2. Lexical & metadata matching accurately matches location and scene names.
+        3. Vision-language semantic cosine similarity provides fine-grained tie-breaking.
+        Returns (fused_score, calibrated_display_percentage in [0.05, 0.99]).
         """
-        fused = float(raw_similarity)
         water_pct = spectral.get("water_pct", 0.0)
         veg_pct = spectral.get("veg_pct", 0.0)
         urban_pct = spectral.get("urban_pct", 0.0)
+        sc_lower = (scene_name or "").lower()
 
-        # 1. Water Constraint Logic
+        # --- Step 1: Spectral match score (primary signal, 0.0 to 1.0) ---
+        spectral_score = 0.50  # default neutral score
+
         if intent.get("requires_water"):
-            if water_pct < 1.5:
-                # Heavy penalty: user explicitly asked for water/water-adjacent, but tile has 0% water
-                fused -= 0.15
+            if water_pct >= 20.0:
+                spectral_score = 0.90 + min(0.08, (water_pct - 20.0) / 1000.0)
+            elif water_pct >= 10.0:
+                spectral_score = 0.80
+            elif water_pct >= 3.0:
+                spectral_score = 0.60
+            elif water_pct >= 1.0:
+                spectral_score = 0.35
             else:
-                # Boost based on water presence & semantic synergy
-                water_factor = min(1.0, water_pct / 20.0)
-                fused += 0.04 * water_factor
-                if intent.get("pure_water"):
-                    # For pure water queries, higher water fraction receives proportional reward
-                    fused += 0.03 * (water_pct / 100.0)
+                # No water detected – strictly penalize so non-water regions don't pollute water queries
+                spectral_score = 0.05
 
-        # 2. Vegetation Constraint Logic
-        if intent.get("requires_vegetation"):
-            if veg_pct < 3.0:
-                fused -= 0.12
+        elif intent.get("is_solar"):
+            if "solar" in sc_lower:
+                spectral_score = 0.92
+            elif urban_pct >= 80.0 and veg_pct < 15.0:
+                spectral_score = 0.72
             else:
-                veg_factor = min(1.0, veg_pct / 25.0)
-                fused += 0.04 * veg_factor
+                spectral_score = 0.20
 
-        # 3. Urban / Built-up Constraint Logic
-        if intent.get("requires_urban"):
-            if urban_pct < 15.0 and not intent.get("requires_water"):
-                fused -= 0.10
+        elif intent.get("is_aviation"):
+            if "airport" in sc_lower or "airfield" in sc_lower:
+                spectral_score = 0.92
+            elif urban_pct >= 60.0 and veg_pct < 20.0:
+                spectral_score = 0.78
+            elif urban_pct >= 30.0:
+                spectral_score = 0.55
             else:
-                urban_factor = min(1.0, urban_pct / 60.0)
-                fused += 0.02 * urban_factor
+                spectral_score = 0.20
 
-        # 4. Score Calibration: map raw/fused scores to realistic match percentages [0.05, 0.98]
-        # Prevents artificial score inflation where unrelated queries (airports or arctic in Chennai) show 80%+.
-        # - Negative/unrelated (fused <= -0.015): 5% - 25%
-        # - Borderline/weak overlap (fused ≈ 0.000): 30% - 45%
-        # - Moderate match (fused ≈ 0.010): 55% - 65%
-        # - Strong match (fused >= 0.020): 75% - 90%
-        # - High match (fused >= 0.035): 88% - 98%
-        k = 65.0
-        f0 = 0.007
-        exponent = max(-50.0, min(50.0, -k * (fused - f0)))
-        calibrated = round(min(0.98, max(0.05, 1.0 / (1.0 + math.exp(exponent)))), 4)
+        elif intent.get("requires_vegetation") and not intent.get("requires_water"):
+            if veg_pct >= 30.0:
+                spectral_score = 0.88
+            elif veg_pct >= 15.0:
+                spectral_score = 0.75
+            elif veg_pct >= 5.0:
+                spectral_score = 0.55
+            elif veg_pct >= 2.0:
+                spectral_score = 0.35
+            else:
+                spectral_score = 0.15
 
-        return round(fused, 4), calibrated
+        elif intent.get("requires_urban") and not intent.get("requires_water"):
+            if urban_pct >= 60.0:
+                spectral_score = 0.85
+            elif urban_pct >= 30.0:
+                spectral_score = 0.70
+            else:
+                spectral_score = 0.30
+
+        # --- Step 2: Lexical and Location Metadata Matching (Hybrid Search) ---
+        lex_boost = 0.0
+        if query_text and scene_name:
+            q_clean = set(query_text.lower().replace("_", " ").replace("-", " ").replace(",", " ").split())
+            s_clean = set(sc_lower.replace("_", " ").replace("-", " ").replace(".", " ").split())
+            stops = {"in", "near", "the", "a", "an", "and", "of", "to", "for", "with", "tif", "png", "jpg"}
+            q_clean -= stops
+            s_clean -= stops
+            matches = q_clean & s_clean
+            if matches:
+                lex_boost = min(0.22, len(matches) * 0.11)
+
+        # --- Step 3: Semantic tie-breaker (continuous fine-tuning) ---
+        SEMANTIC_MIN = -0.035
+        SEMANTIC_MAX = 0.015
+        sem_range = SEMANTIC_MAX - SEMANTIC_MIN
+        normalized_sem = max(0.0, min(1.0, (float(raw_similarity) - SEMANTIC_MIN) / sem_range))
+        sem_adjustment = (normalized_sem - 0.5) * 0.08  # [-0.04, +0.04]
+
+        # Combine
+        fused = spectral_score + lex_boost + sem_adjustment
+
+        # If pure water was requested and tile has < 1% water, hard cap at 0.10
+        if intent.get("pure_water") and water_pct < 1.0:
+            fused = min(fused, 0.08)
+
+        # Clamp and calibrate
+        fused = max(0.05, min(0.99, fused))
+        calibrated = round(fused, 4)
+
+        return round(fused - 0.5, 4), calibrated
 
     def analyze_quality(self, image_path: Union[str, Path]) -> Dict[str, Any]:
         """

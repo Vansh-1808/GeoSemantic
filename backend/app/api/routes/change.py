@@ -3,7 +3,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, and_
 
 from app.db.database import get_session
 from app.models.change_event import ChangeEvent
@@ -47,7 +47,14 @@ async def list_change_events(
     min_confidence: float = 0.0,
     db: AsyncSession = Depends(get_session)
 ):
-    """List change events with optional filtering (excluding orphaned records)."""
+    """List change events – only returns events whose before/after tiles still exist in the DB."""
+    from app.models.tile import Tile
+    from sqlalchemy import exists
+
+    # Only show events where BOTH tiles still exist (eliminates stale/orphaned records)
+    before_exists = exists().where(Tile.id == ChangeEvent.before_tile_id)
+    after_exists = exists().where(Tile.id == ChangeEvent.after_tile_id)
+
     query = (
         select(ChangeEvent)
         .where(
@@ -55,6 +62,8 @@ async def list_change_events(
                 ChangeEvent.final_confidence >= min_confidence,
                 ChangeEvent.before_tile_id.isnot(None),
                 ChangeEvent.after_tile_id.isnot(None),
+                before_exists,
+                after_exists,
             )
         )
         .order_by(ChangeEvent.detected_at.desc())

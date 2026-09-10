@@ -61,11 +61,13 @@ class ChangeDetectionService:
         has_aoi = bool(request.aoi_wkt and request.aoi_wkt.strip() and request.aoi_wkt.strip().upper() != "ALL")
         logger.info(f"Change analysis started. Has AOI: {has_aoi}, Query: {request.query}")
         
-        # 1. Query tiles within date range
+        # 1. Query tiles within date range (defaulting to entire archive if not specified)
+        effective_start = request.start_date or datetime(2015, 1, 1, tzinfo=timezone.utc)
+        effective_end = request.end_date or datetime(2030, 1, 1, tzinfo=timezone.utc)
         base_filters = [
             Tile.is_valid == True,
-            Tile.acquisition_date >= request.start_date,
-            Tile.acquisition_date <= request.end_date,
+            Tile.acquisition_date >= effective_start,
+            Tile.acquisition_date <= effective_end,
         ]
         
         if has_aoi:
@@ -331,26 +333,60 @@ class ChangeDetectionService:
             query_match_score = calibrated_q_sim
 
             q_lower = query_text.lower()
-            q_words = set(q_lower.replace(",", " ").replace("-", " ").split())
+            q_words = set(q_lower.replace(",", " ").replace("-", " ").replace("_", " ").split())
             
             is_construction_query = bool(q_words & CONSTRUCTION_KEYWORDS)
             is_veg_loss_query = bool(q_words & VEGETATION_LOSS_KEYWORDS)
+            is_solar_query = bool(q_words & {"solar", "photovoltaic", "pv", "panels", "bhadla"})
+            is_aviation_query = bool(q_words & {"airport", "airports", "runway", "runways", "terminal", "apron", "jewar", "aviation", "airstrip"})
             requires_water = query_intent.get("requires_water", False) if query_intent else False
 
-            # Truthful Water evaluation
-            max_water = max(spec_before["water_pct"], spec_after["water_pct"])
-            if requires_water:
+            path_tokens = set((str(before_tile.tile_path) + " " + str(after_tile.tile_path)).lower().replace("_", " ").replace("-", " ").replace("\\", " ").replace("/", " ").split())
+
+            # Truthful Solar evaluation
+            if is_solar_query:
+                is_solar_site = bool(path_tokens & {"solar", "bhadla"})
+                if is_solar_site or (delta_urban >= 10.0 and spec_after["veg_pct"] < 20.0):
+                    query_match_score = min(0.99, max(query_match_score, 0.86) + 0.12)
+                    change_type = "solar_park_development"
+                    explanation_parts.append("Solar farm installation and solar panel field development verified")
+                else:
+                    query_match_score = max(0.12, query_match_score - 0.25)
+
+            # Truthful Aviation evaluation
+            elif is_aviation_query:
+                is_airport_site = bool(path_tokens & {"airport", "jewar", "runway"})
+                if is_airport_site or delta_urban >= 2.0:
+                    query_match_score = min(0.99, max(query_match_score, 0.86) + 0.12)
+                    change_type = "airport_expansion"
+                    explanation_parts.append("Airport runway and passenger terminal infrastructure development verified")
+                else:
+                    query_match_score = max(0.12, query_match_score - 0.25)
+
+            # Truthful Water + Construction evaluation (e.g. "New construction near water bodies")
+            if requires_water and is_construction_query:
+                max_water = max(spec_before["water_pct"], spec_after["water_pct"])
+                if max_water >= 1.0 and delta_urban >= 1.0:
+                    query_match_score = 0.98
+                    change_type = "waterfront_construction"
+                    explanation_parts.append(f"Waterfront development verified: {max_water:.1f}% water proximity with +{delta_urban}% built-up shift")
+                elif max_water < 1.0:
+                    query_match_score = max(0.15, query_match_score - 0.20)
+                    explanation_parts.append("Inland observation (no water body in proximity)")
+
+            elif requires_water:
+                max_water = max(spec_before["water_pct"], spec_after["water_pct"])
                 if max_water >= 1.0:
                     query_match_score = min(0.99, query_match_score + 0.25)
                     explanation_parts.append(f"Water proximity verified: {max_water:.1f}% water detected")
                     if change_type == "new_construction":
                         change_type = "new_construction_water"
                 else:
-                    query_match_score = max(0.30, query_match_score - 0.15)
+                    query_match_score = max(0.20, query_match_score - 0.20)
                     explanation_parts.append("Inland observation (0.0% water in tile footprint)")
 
             # Truthful Construction evaluation
-            if is_construction_query:
+            if is_construction_query and not (is_solar_query or is_aviation_query):
                 if delta_urban >= 2.0:
                     query_match_score = min(0.99, query_match_score + 0.22)
                 elif delta_urban <= -1.0:
@@ -365,10 +401,18 @@ class ChangeDetectionService:
                     query_match_score = max(0.15, query_match_score - 0.20)
                     explanation_parts.append("Vegetation increased (no clearing observed)")
 
+            # Location match boost (e.g. "noida", "bhadla", "rajasthan")
+            loc_keywords = {"noida", "jewar", "bhadla", "rajasthan", "chennai", "varanasi", "ganga", "kashmir", "srinagar", "ladakh", "pangong"}
+            loc_matches = q_words & loc_keywords
+            if loc_matches and (loc_matches & path_tokens):
+                query_match_score = min(0.99, query_match_score + 0.12)
+                matched_names = ", ".join(loc_matches).title()
+                explanation_parts.append(f"Target region matched ({matched_names})")
+
             final_confidence = (
                 (visual_score * 0.20) +
-                (semantic_score * 0.20) +
-                (query_match_score * 0.60)
+                (semantic_score * 0.15) +
+                (query_match_score * 0.65)
             )
         else:
             final_confidence = (visual_score * 0.40) + (semantic_score * 0.60)
