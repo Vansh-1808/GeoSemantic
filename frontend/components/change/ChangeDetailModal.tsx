@@ -4,8 +4,11 @@ import React, { useState, useRef } from "react";
 import { ChangeEventResponse, api } from "@/lib/api";
 import { 
   X, ZoomIn, ZoomOut, RotateCcw, Layers, Sparkles, 
-  Compass, Flame, Sliders, Activity, Calendar, MapPin
+  Compass, Flame, Sliders, Activity, Calendar, MapPin,
+  ShieldCheck, ShieldAlert, AlertTriangle, ArrowRight
 } from "lucide-react";
+import { FactorBreakdownPanel } from "./FactorBreakdownPanel";
+import { ConfidenceGauge } from "./ConfidenceGauge";
 
 interface ChangeDetailModalProps {
   event: ChangeEventResponse | null;
@@ -15,6 +18,7 @@ interface ChangeDetailModalProps {
 export function ChangeDetailModal({ event, onClose }: ChangeDetailModalProps) {
   if (!event) return null;
 
+  const [activeTab, setActiveTab] = useState<"visual" | "confidence">("visual");
   const [viewMode, setViewMode] = useState<"side-by-side" | "heatmap" | "slider">("side-by-side");
   const [sliderPos, setSliderPos] = useState<number>(50);
   const [zoomLevel, setZoomLevel] = useState<number>(1);
@@ -76,78 +80,148 @@ export function ChangeDetailModal({ event, onClose }: ChangeDetailModalProps) {
           </button>
         </div>
 
-        {/* Toolbar */}
-        <div className="px-6 py-3 bg-gray-950/30 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3">
-          {/* View Modes */}
-          <div className="flex items-center gap-1 bg-gray-800/70 p-1 rounded-xl border border-gray-700/60 text-xs">
-            <button
-              onClick={() => setViewMode("side-by-side")}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                viewMode === "side-by-side"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              Side-by-Side
-            </button>
-            <button
-              onClick={() => setViewMode("slider")}
-              className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                viewMode === "slider"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "text-gray-400 hover:text-white"
-              }`}
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              Interactive Swipe
-            </button>
-            {diffImg && (
+        {/* Primary Tabs Navigation */}
+        <div className="px-6 py-2.5 bg-gray-950 border-b border-gray-800 flex items-center gap-2">
+          <button
+            onClick={() => setActiveTab("visual")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+              activeTab === "visual"
+                ? "bg-blue-600 text-white shadow-md"
+                : "bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>High-Res Imagery Inspection</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("confidence")}
+            className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all ${
+              activeTab === "confidence"
+                ? "bg-blue-600 text-white shadow-md"
+                : "bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800"
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>Multi-Factor Confidence Engine</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold ${
+              event.is_suppressed 
+                ? "bg-rose-500/20 text-rose-300 border border-rose-500/40" 
+                : confidencePct >= 70
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                : "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+            }`}>
+              {event.confidence_tier || (event.is_suppressed ? "Suppressed" : `${confidencePct}%`)}
+            </span>
+          </button>
+        </div>
+
+        {/* Visual Inspection Toolbar (Only visible in Visual tab) */}
+        {activeTab === "visual" && (
+          <div className="px-6 py-3 bg-gray-950/30 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3">
+            {/* View Modes */}
+            <div className="flex items-center gap-1 bg-gray-800/70 p-1 rounded-xl border border-gray-700/60 text-xs">
               <button
-                onClick={() => setViewMode("heatmap")}
+                onClick={() => setViewMode("side-by-side")}
                 className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
-                  viewMode === "heatmap"
+                  viewMode === "side-by-side"
                     ? "bg-blue-600 text-white shadow-sm"
                     : "text-gray-400 hover:text-white"
                 }`}
               >
-                <Flame className="w-3.5 h-3.5 text-orange-400" />
-                Change Heatmap
+                <Layers className="w-3.5 h-3.5" />
+                Side-by-Side
               </button>
-            )}
-          </div>
+              <button
+                onClick={() => setViewMode("slider")}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  viewMode === "slider"
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                Interactive Swipe
+              </button>
+              {diffImg && (
+                <button
+                  onClick={() => setViewMode("heatmap")}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                    viewMode === "heatmap"
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5 text-orange-400" />
+                  Change Heatmap
+                </button>
+              )}
+            </div>
 
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-2 text-xs">
-            <button
-              onClick={() => handleZoom(-0.25)}
-              className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors"
-              title="Zoom Out"
-            >
-              <ZoomOut className="w-4 h-4" />
-            </button>
-            <span className="font-mono text-gray-300 w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
-            <button
-              onClick={() => handleZoom(0.25)}
-              className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors"
-              title="Zoom In"
-            >
-              <ZoomIn className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleResetZoom}
-              className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors"
-              title="Reset Zoom"
-            >
-              <RotateCcw className="w-4 h-4" />
-            </button>
+            {/* Zoom Controls */}
+            <div className="flex items-center gap-2 text-xs">
+              <button
+                onClick={() => handleZoom(-0.25)}
+                className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors"
+                title="Zoom Out"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <span className="font-mono text-gray-300 w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
+              <button
+                onClick={() => handleZoom(0.25)}
+                className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors"
+                title="Zoom In"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleResetZoom}
+                className="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700 transition-colors"
+                title="Reset Zoom"
+              >
+                <RotateCcw className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Modal Main Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Visual Display Container */}
-          <div className="bg-gray-950 rounded-2xl border border-gray-800 p-4 overflow-hidden flex items-center justify-center min-h-[380px]">
+          {activeTab === "confidence" ? (
+            <FactorBreakdownPanel
+              confidenceBreakdown={event.confidence_breakdown}
+              finalConfidence={event.final_confidence}
+              confidenceTier={event.confidence_tier}
+              isSuppressed={event.is_suppressed}
+              suppressionReasons={event.suppression_reasons || (event.suppression_reason ? [event.suppression_reason] : [])}
+              positiveFactors={event.positive_factors}
+            />
+          ) : (
+            <>
+              {/* Prompt to view 10-Factor Engine */}
+              <div 
+                onClick={() => setActiveTab("confidence")}
+                className="p-3 bg-blue-950/20 border border-blue-800/40 hover:border-blue-500/60 rounded-xl flex items-center justify-between cursor-pointer transition-all group"
+              >
+                <div className="flex items-center gap-2.5">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  <div>
+                    <span className="text-xs font-bold text-white group-hover:text-blue-300 transition-colors block">
+                      Multi-Factor Confidence Engine: {event.confidence_tier || (event.is_suppressed ? "Suppressed" : `${confidencePct}% Confidence`)}
+                    </span>
+                    <span className="text-[11px] text-gray-400">
+                      View full 10-factor scientific breakdown, suppression causes, and analyst weight sandbox
+                    </span>
+                  </div>
+                </div>
+                <span className="text-xs text-blue-400 font-semibold flex items-center gap-1 group-hover:underline">
+                  Inspect Engine <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+                </span>
+              </div>
+
+              {/* Visual Display Container */}
+              <div className="bg-gray-950 rounded-2xl border border-gray-800 p-4 overflow-hidden flex items-center justify-center min-h-[380px]">
             {viewMode === "side-by-side" && (
               <div 
                 className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-4xl transition-transform duration-150"
@@ -363,6 +437,8 @@ export function ChangeDetailModal({ event, onClose }: ChangeDetailModalProps) {
             </span>
             <span>Sensor Observation: Sentinel-2 / Landsat High-Resolution Optical</span>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

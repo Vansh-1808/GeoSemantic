@@ -7,6 +7,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from typing import TYPE_CHECKING
+
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     CheckConstraint,
@@ -23,6 +25,10 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.provenance import ProvenanceRecord
+    from app.models.tile import Tile
 
 
 class Scene(Base):
@@ -104,10 +110,10 @@ class Scene(Base):
     )
 
     # ── Relationships ─────────────────────────────────────────
-    tiles: Mapped[list["Tile"]] = relationship(  # noqa: F821
+    tiles: Mapped[list[Tile]] = relationship(
         "Tile", back_populates="scene", cascade="all, delete-orphan"
     )
-    provenance_records: Mapped[list["ProvenanceRecord"]] = relationship(  # noqa: F821
+    provenance_records: Mapped[list[ProvenanceRecord]] = relationship(
         "ProvenanceRecord",
         primaryjoin="and_(ProvenanceRecord.entity_type=='scene', "
                     "foreign(ProvenanceRecord.entity_id)==Scene.id)",

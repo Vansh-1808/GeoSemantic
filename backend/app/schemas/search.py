@@ -105,6 +105,53 @@ class SemanticSearchResultItem(BaseModel):
     )
 
 
+class SpellingCorrectionItem(BaseModel):
+    """Details of a single word-level spelling correction."""
+    original_word: str
+    corrected_word: str
+    confidence: float
+    edit_distance: int
+
+
+class ParsedQuerySchema(BaseModel):
+    """Structured interpretation of a natural language query."""
+    raw_query: str
+    normalized_query: str
+    intent: str
+    target: Optional[str] = None
+    concept: Optional[str] = None
+    relationship: Optional[str] = None
+    location: Optional[str] = None
+    location_bbox: Optional[List[float]] = None
+    # Phase 14: Geographic Entity Understanding
+    location_type: Optional[str] = None  # "country" | "state" | "city" | "region"
+    location_wkt: Optional[str] = None
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+    time_anchor: Optional[str] = None
+    max_cloud_cover: Optional[float] = None
+    min_quality: Optional[float] = None
+    sensor_constraints: Optional[List[str]] = None
+    requires_water: bool = False
+    requires_vegetation: bool = False
+    requires_urban: bool = False
+    canonical_embedding_text: str
+    # Phase 13: Spelling correction & robust query fields
+    corrected_query: Optional[str] = None
+    did_you_mean: Optional[str] = None
+    corrections: List[SpellingCorrectionItem] = Field(default_factory=list)
+
+
+class QueryParseRequest(BaseModel):
+    """Payload to analyze and normalize an analyst search prompt."""
+    query: str
+
+
+class QueryParseResponse(BaseModel):
+    """Structured understanding of an analyst query."""
+    parsed: ParsedQuerySchema
+
+
 class SemanticSearchResponse(BaseModel):
     """Consolidated semantic search results and telemetry."""
     query: str
@@ -117,6 +164,7 @@ class SemanticSearchResponse(BaseModel):
     model_used: str
     results: List[SemanticSearchResultItem]
     filters_applied: Dict[str, Any]
+    parsed_query: Optional[ParsedQuerySchema] = None
 
 
 class SearchFiltersResponse(BaseModel):

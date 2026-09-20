@@ -78,6 +78,16 @@ class Settings(BaseSettings):
     change_confidence_threshold: float = 0.45
     change_suppression_threshold: float = 0.30
 
+    # ── Local LLM (Phase 14) ──────────────────────────────────
+    llm_enabled: bool = True
+    llm_provider: str = "ollama"
+    llm_model: str = "llama3:latest"
+    llm_fallback_model: str = "llama3.2:latest"
+    llm_base_url: str = "http://localhost:11434"
+    llm_timeout_seconds: float = 75.0
+    llm_status_timeout_seconds: float = 6.0
+    llm_temperature: float = 0.1
+
     # ── CORS ──────────────────────────────────────────────────
     frontend_url: str = "http://localhost:3000"
 

@@ -44,13 +44,26 @@ class VectorStoreService:
 
         self._initialized = True
         self._client: Optional[QdrantClient] = None
-        self._initialize_client()
-        self.ensure_collections()
-        logger.info(
-            "vector_store_initialized",
-            mode=settings.qdrant_mode,
-            path=str(settings.qdrant_local_path) if settings.qdrant_mode == "local" else None,
-        )
+        self._healthy: bool = False  # C2: tracks whether Qdrant is operational
+
+        try:
+            self._initialize_client()
+            self.ensure_collections()
+            self._healthy = True
+            logger.info(
+                "vector_store_initialized",
+                mode=settings.qdrant_mode,
+                path=str(settings.qdrant_local_path) if settings.qdrant_mode == "local" else None,
+            )
+        except Exception as exc:
+            logger.error(
+                "vector_store_startup_failed",
+                error=str(exc),
+                detail=(
+                    "Vector store is in DEGRADED mode. Search and indexing will be unavailable "
+                    "until the Qdrant store path is accessible and the service is restarted."
+                ),
+            )
 
     def _initialize_client(self) -> None:
         """Initialize Qdrant client based on configuration."""
@@ -107,8 +120,13 @@ class VectorStoreService:
         """
         Batch upsert vectors into a specific collection.
         Uses tile UUID string as point ID to ensure idempotency and prevent duplicates.
+        No-ops silently if the vector store is in degraded mode.
         """
         if not points:
+            return
+
+        if not self._healthy:
+            logger.warning("vector_store_degraded_upsert_skipped", collection=collection_name, count=len(points))
             return
 
         self.client.upsert(
@@ -133,6 +151,11 @@ class VectorStoreService:
         except Exception:
             return False
 
+    @property
+    def is_healthy(self) -> bool:
+        """Returns True only if the vector store initialized successfully."""
+        return self._healthy
+
     def search_vectors(
         self,
         collection_name: str,
@@ -144,7 +167,12 @@ class VectorStoreService:
         """
         Execute similarity search on a collection with optional multi-condition filtering.
         Returns list of ScoredPoint objects sorted by similarity score descending.
+        Returns empty list if the vector store is in degraded mode.
         """
+        if not self._healthy:
+            logger.warning("vector_store_degraded_search_skipped", collection=collection_name)
+            return []
+
         if not self.client.collection_exists(collection_name):
             return []
 
@@ -312,8 +340,6 @@ class VectorStoreService:
             except Exception:
                 pass
             self._client = None
-            self._initialized = False
-            VectorStoreService._instance = None
 
 
 # Module-level singleton

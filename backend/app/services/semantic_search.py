@@ -23,12 +23,14 @@ from app.models.provenance import ProvenanceRecord
 from app.models.scene import Scene
 from app.models.tile import Tile
 from app.schemas.search import (
+    ParsedQuerySchema,
     SearchFiltersResponse,
     SemanticSearchRequest,
     SemanticSearchResponse,
     SemanticSearchResultItem,
 )
 from app.services.embedding_service import embedding_service
+from app.services.query_understanding import query_understanding_service
 from app.services.spectral_analysis import spectral_analysis_service
 from app.services.vector_store import vector_store
 
@@ -57,10 +59,17 @@ class SemanticSearchService:
         """
         t0 = time.perf_counter()
 
-        # Step 1: Generate normalized 512-dimensional query embedding
+        # Step 0: Understand the natural language query structurally.
+        # Phase 14: parse_async() attempts LLM-enhanced interpretation first, then
+        # falls back to deterministic parse() if Ollama is unavailable. This is safe
+        # because parse_async() catches ConnectError immediately (no latency penalty).
+        parsed_query = await query_understanding_service.parse_async(req.query)
+
+        # Step 1: Generate normalized 512-dimensional query embedding from canonical semantic text
         t_embed_start = time.perf_counter()
+        text_to_embed = parsed_query.canonical_embedding_text or req.query.strip()
         query_vector = self.embedding.embed_text(
-            text=req.query.strip(),
+            text=text_to_embed,
             model_name="RemoteCLIP",
             normalize=True,
         )
@@ -71,7 +80,7 @@ class SemanticSearchService:
         filters_applied: Dict[str, Any] = {}
 
         # 2a. Sensors filter (support multiple or single)
-        sensors_list = req.sensors or ([req.sensor] if req.sensor else None)
+        sensors_list = req.sensors or ([req.sensor] if req.sensor else parsed_query.sensor_constraints)
         if sensors_list:
             if len(sensors_list) == 1:
                 must_conditions.append(
@@ -89,35 +98,39 @@ class SemanticSearchService:
                 )
             filters_applied["sensors"] = sensors_list
 
-        # 2b. Quality threshold
-        if req.min_quality is not None:
+        # 2b. Quality threshold (auto-apply if query specified high quality / clear)
+        min_quality = req.min_quality if req.min_quality is not None else parsed_query.min_quality
+        if min_quality is not None:
             must_conditions.append(
                 models.FieldCondition(
                     key="quality_score",
-                    range=models.Range(gte=req.min_quality),
+                    range=models.Range(gte=min_quality),
                 )
             )
-            filters_applied["min_quality"] = req.min_quality
+            filters_applied["min_quality"] = min_quality
 
-        # 2c. Cloud cover threshold
-        if req.max_cloud_cover is not None:
+        # 2c. Cloud cover threshold (auto-apply if query specified cloud-free / clear sky)
+        max_cloud = req.max_cloud_cover if req.max_cloud_cover is not None else parsed_query.max_cloud_cover
+        if max_cloud is not None:
             must_conditions.append(
                 models.FieldCondition(
                     key="cloud_cover_pct",
-                    range=models.Range(lte=req.max_cloud_cover),
+                    range=models.Range(lte=max_cloud),
                 )
             )
-            filters_applied["max_cloud_cover"] = req.max_cloud_cover
+            filters_applied["max_cloud_cover"] = max_cloud
 
-        # 2d. Date range
-        if req.start_date or req.end_date:
+        # 2d. Date range (auto-apply if query specified temporal constraints like 'after 2023')
+        effective_start = req.start_date or parsed_query.start_date
+        effective_end = req.end_date or parsed_query.end_date
+        if effective_start or effective_end:
             date_kwargs: Dict[str, Any] = {}
-            if req.start_date:
-                date_kwargs["gte"] = req.start_date.isoformat()
-                filters_applied["start_date"] = req.start_date.isoformat()
-            if req.end_date:
-                date_kwargs["lte"] = req.end_date.isoformat()
-                filters_applied["end_date"] = req.end_date.isoformat()
+            if effective_start:
+                date_kwargs["gte"] = effective_start.isoformat()
+                filters_applied["start_date"] = effective_start.isoformat()
+            if effective_end:
+                date_kwargs["lte"] = effective_end.isoformat()
+                filters_applied["end_date"] = effective_end.isoformat()
 
             must_conditions.append(
                 models.FieldCondition(
@@ -126,9 +139,9 @@ class SemanticSearchService:
                 )
             )
 
-        # 2e. Geospatial filtering (Polygon envelope or Bounding Box)
+        # 2e. Geospatial filtering (Polygon envelope, Bounding Box, or extracted Location BBox)
         has_polygon = bool(req.aoi_polygon and len(req.aoi_polygon) >= 3)
-        bbox_coords = req.aoi_bbox or req.aoi
+        bbox_coords = req.aoi_bbox or req.aoi or parsed_query.location_bbox
 
         if has_polygon and req.aoi_polygon:
             lons = [p[0] for p in req.aoi_polygon]
@@ -205,30 +218,52 @@ class SemanticSearchService:
                 mean_score=round(sum(raw_scores)/len(raw_scores), 4),
             )
 
-        # Step 4: PostGIS Exact Spatial Verification (if polygon AOI provided)
+        # Step 4: PostGIS Exact Spatial Verification (Polygon AOI, Bounding Box AOI, or Geographic Entity)
         spatial_filter_time_ms = 0.0
-        if has_polygon and scored_points and req.aoi_polygon:
+        if scored_points:
             t_spatial_start = time.perf_counter()
-            poly_pts = [list(p) for p in req.aoi_polygon]
-            if poly_pts[0] != poly_pts[-1]:
-                poly_pts.append(poly_pts[0])
-            poly_wkt = "POLYGON((" + ", ".join(f"{p[0]} {p[1]}" for p in poly_pts) + "))"
-
             candidate_uuids = [uuid.UUID(p.id) for p in scored_points]
-            spatial_func = "ST_Within" if req.spatial_filter_mode == "within" else "ST_Intersects"
-            spatial_sql = text(
-                f"SELECT tiles.id FROM tiles WHERE tiles.id = ANY(:candidate_ids) AND {spatial_func}(tiles.footprint, ST_GeomFromText(:wkt, 4326))"
-            )
-            spatial_res = await session.execute(
-                spatial_sql,
-                {"candidate_ids": candidate_uuids, "wkt": poly_wkt},
-            )
-            valid_spatial_ids = set(spatial_res.scalars().all())
 
-            filtered_points = [p for p in scored_points if uuid.UUID(p.id) in valid_spatial_ids]
-            spatial_filter_time_ms = round((time.perf_counter() - t_spatial_start) * 1000, 2)
+            if has_polygon and req.aoi_polygon:
+                poly_pts = [list(p) for p in req.aoi_polygon]
+                if poly_pts[0] != poly_pts[-1]:
+                    poly_pts.append(poly_pts[0])
+                poly_wkt = "POLYGON((" + ", ".join(f"{p[0]} {p[1]}" for p in poly_pts) + "))"
+
+                spatial_func = "ST_Within" if req.spatial_filter_mode == "within" else "ST_Intersects"
+                spatial_sql = text(
+                    f"SELECT tiles.id FROM tiles WHERE tiles.id = ANY(:candidate_ids) AND {spatial_func}(tiles.footprint, ST_GeomFromText(:wkt, 4326))"
+                )
+                spatial_res = await session.execute(
+                    spatial_sql,
+                    {"candidate_ids": candidate_uuids, "wkt": poly_wkt},
+                )
+                valid_spatial_ids = set(spatial_res.scalars().all())
+                filtered_points = [p for p in scored_points if uuid.UUID(p.id) in valid_spatial_ids]
+                spatial_filter_time_ms = round((time.perf_counter() - t_spatial_start) * 1000, 2)
+            elif bbox_coords and len(bbox_coords) == 4:
+                w, s, e, n = bbox_coords
+                envelope_sql = text(
+                    "SELECT tiles.id FROM tiles WHERE tiles.id = ANY(:candidate_ids) AND ST_Intersects(tiles.footprint, ST_MakeEnvelope(:w, :s, :e, :n, 4326))"
+                )
+                spatial_res = await session.execute(
+                    envelope_sql,
+                    {"candidate_ids": candidate_uuids, "w": min(w, e), "s": min(s, n), "e": max(w, e), "n": max(s, n)},
+                )
+                valid_spatial_ids = set(spatial_res.scalars().all())
+                filtered_points = [p for p in scored_points if uuid.UUID(p.id) in valid_spatial_ids]
+                spatial_filter_time_ms = round((time.perf_counter() - t_spatial_start) * 1000, 2)
+            else:
+                filtered_points = scored_points
         else:
-            filtered_points = scored_points
+            filtered_points = []
+
+        if parsed_query.location:
+            filters_applied["geographic_entity"] = {
+                "name": parsed_query.location,
+                "type": parsed_query.location_type,
+                "bbox": bbox_coords,
+            }
 
         # Step 5: Enrich points from PostgreSQL database
         results: List[SemanticSearchResultItem] = []
@@ -407,6 +442,7 @@ class SemanticSearchService:
             model_used="RemoteCLIP (ViT-B-32)",
             results=results,
             filters_applied=filters_applied,
+            parsed_query=ParsedQuerySchema(**parsed_query.model_dump()),
         )
 
     async def get_search_filters(self, session: AsyncSession) -> SearchFiltersResponse:

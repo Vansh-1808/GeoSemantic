@@ -4,6 +4,9 @@
 
 > An offline-first, production-quality satellite imagery intelligence platform. Search archives with natural language, run image similarity queries, detect meaningful changes over time, and explore clusters of similar locations — all running locally on your machine.
 
+> [!NOTE]
+> **Deployment Architecture & Security**: Designed for offline/air-gapped single-analyst workstations. API endpoints do not require authentication for local operation. When exposing beyond localhost, place the backend behind an authenticating gateway/reverse proxy.
+
 ---
 
 ## Quick Start
@@ -98,6 +101,17 @@ python scripts/download_real_samples.py
 ```
 
 *Downloaded GeoTIFF scenes are saved to `backend/data/raw_scenes/`. You can drag-and-drop or ingest them directly through the web UI at `http://localhost:3000`.*
+
+### 7. Run Evaluation & Accuracy Benchmark Suite
+
+Run the automated benchmark suite to evaluate model accuracy, false-alarm suppression rates, and geographic disentanglement:
+
+```bash
+# Run benchmark and generate report
+backend\.venv\Scripts\python scripts/run_benchmark_report.py
+```
+
+*This prints real-time telemetry across all 5 intelligence pillars and saves a formal evaluator report to [`docs/BENCHMARK_EVALUATION_REPORT.md`](docs/BENCHMARK_EVALUATION_REPORT.md).*
 
 ---
 

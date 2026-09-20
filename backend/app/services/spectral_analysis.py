@@ -37,7 +37,7 @@ VEGETATION_KEYWORDS = {
 }
 
 VEGETATION_PHRASES = [
-    "crop field", "agricultural land", "green area", "dense forest", "irrigation canal"
+    "crop field", "agricultural land", "green area", "dense forest", "irrigation canal", "agricultural fields"
 ]
 
 URBAN_KEYWORDS = {
@@ -46,8 +46,28 @@ URBAN_KEYWORDS = {
 }
 
 URBAN_PHRASES = [
-    "residential area", "housing colony", "road grid", "dense buildings", "urban grid"
+    "residential area", "housing colony", "road grid", "dense buildings", "urban grid", "residential development"
 ]
+
+INDUSTRIAL_KEYWORDS = {
+    "industrial", "facility", "facilities", "factory", "factories", "warehouse", "warehouses",
+    "plant", "manufacturing", "depot", "substation", "complex", "refinery", "works", "locomotive", "dam"
+}
+
+RESIDENTIAL_KEYWORDS = {
+    "residential", "residents", "houses", "housing", "neighborhood", "neighborhoods",
+    "apartments", "suburb", "suburbs", "settlement", "settlements", "colony", "colonies"
+}
+
+ROAD_KEYWORDS = {
+    "road", "roads", "highway", "highways", "expressway", "expressways", "street", "streets",
+    "avenue", "avenues", "corridor", "corridors", "arterial", "arterials", "paved", "paving", "traffic"
+}
+
+CONSTRUCTION_SITE_KEYWORDS = {
+    "cleared", "clearing", "construction", "site", "sites", "excavation", "earthwork",
+    "earthworks", "grading", "bare", "disturbed", "groundwork"
+}
 
 AVIATION_KEYWORDS = {
     "airport", "airports", "runway", "runways", "apron", "aprons",
@@ -213,6 +233,7 @@ class SpectralAnalysisService:
             .replace("/", " ")
             .replace(",", " ")
             .replace("-", " ")
+            .replace(".", " ")
             .split()
         )
 
@@ -227,17 +248,25 @@ class SpectralAnalysisService:
         is_aviation = bool(cleaned_words & AVIATION_KEYWORDS)
         is_solar = bool(cleaned_words & SOLAR_KEYWORDS) or any(phrase in q_lower for phrase in SOLAR_PHRASES)
         is_mountain = bool(cleaned_words & MOUNTAIN_KEYWORDS)
+        is_industrial = bool(cleaned_words & INDUSTRIAL_KEYWORDS)
+        is_residential = bool(cleaned_words & RESIDENTIAL_KEYWORDS)
+        is_road = bool(cleaned_words & ROAD_KEYWORDS)
+        is_construction_site = bool(cleaned_words & CONSTRUCTION_SITE_KEYWORDS)
 
         requires_urban = (
             (
                 bool(cleaned_words & URBAN_KEYWORDS) or
+                is_industrial or
+                is_residential or
+                is_road or
+                is_construction_site or
                 any(phrase in q_lower for phrase in URBAN_PHRASES)
             )
-            and not is_aviation
-            and not is_solar
+            and not (is_aviation or is_solar)
         )
 
-        pure_water = requires_water and not (requires_urban or requires_vegetation or is_aviation or is_solar)
+        pure_water = requires_water and not (requires_urban or requires_vegetation or is_aviation or is_solar or is_construction_site)
+        composite_count = sum([requires_water, requires_vegetation, (requires_urban or is_road or is_residential or is_industrial)])
 
         return {
             "requires_water": requires_water,
@@ -247,6 +276,11 @@ class SpectralAnalysisService:
             "is_aviation": is_aviation,
             "is_solar": is_solar,
             "is_mountain": is_mountain,
+            "is_industrial": is_industrial,
+            "is_residential": is_residential,
+            "is_road": is_road,
+            "is_construction_site": is_construction_site,
+            "composite_count": composite_count,
         }
 
     def compute_fused_score(
@@ -273,7 +307,34 @@ class SpectralAnalysisService:
         # --- Step 1: Spectral match score (primary signal, 0.0 to 1.0) ---
         spectral_score = 0.50  # default neutral score
 
-        if intent.get("requires_water"):
+        # Case 1: Multi-Class Composite Queries (e.g. Water + Vegetation, or Water + Vegetation + Urban/Roads)
+        if intent.get("requires_water") and intent.get("requires_vegetation"):
+            if intent.get("composite_count", 0) >= 3:
+                # 3-way Composite: Water + Agriculture/Veg + Roads/Buildings (e.g. "roads, buildings, agricultural fields, and water bodies")
+                if water_pct >= 2.0 and veg_pct >= 5.0 and urban_pct >= 10.0:
+                    balance = min(water_pct, veg_pct, urban_pct) / max(water_pct, veg_pct, urban_pct, 1.0)
+                    spectral_score = 0.93 + min(0.05, balance * 0.10)
+                elif water_pct >= 1.0 and (veg_pct >= 5.0 or urban_pct >= 15.0):
+                    spectral_score = 0.78
+                elif water_pct < 1.0:
+                    spectral_score = 0.15
+                else:
+                    spectral_score = 0.40
+            else:
+                # 2-way Composite: Water + Vegetation (e.g. "locations with large water bodies and surrounding vegetation")
+                if water_pct >= 8.0 and veg_pct >= 8.0:
+                    spectral_score = 0.93 + min(0.05, (water_pct + veg_pct) / 2000.0)
+                elif water_pct >= 4.0 and veg_pct >= 4.0:
+                    spectral_score = 0.85
+                elif water_pct < 1.0:
+                    spectral_score = 0.10  # Zero water
+                elif veg_pct < 3.0:
+                    # High water but virtually zero vegetation (e.g. open ocean / barren harbor)
+                    spectral_score = 0.30  # Heavily penalize open sea when vegetation was requested!
+                else:
+                    spectral_score = 0.60
+
+        elif intent.get("pure_water"):
             if water_pct >= 20.0:
                 spectral_score = 0.90 + min(0.08, (water_pct - 20.0) / 1000.0)
             elif water_pct >= 10.0:
@@ -283,12 +344,48 @@ class SpectralAnalysisService:
             elif water_pct >= 1.0:
                 spectral_score = 0.35
             else:
-                # No water detected – strictly penalize so non-water regions don't pollute water queries
                 spectral_score = 0.05
+
+        elif intent.get("is_construction_site"):
+            # Cleared land and construction sites: high bare/non-veg surface, zero water
+            if water_pct < 2.0 and urban_pct >= 65.0:
+                spectral_score = 0.88 + min(0.06, (urban_pct - 65.0) / 500.0)
+                if any(k in sc_lower for k in ("jewar", "airport", "construction")):
+                    spectral_score = min(0.98, spectral_score + 0.08)
+            elif water_pct < 2.0 and urban_pct >= 40.0:
+                spectral_score = 0.72
+            else:
+                spectral_score = 0.25
+
+        elif intent.get("is_industrial"):
+            # Industrial facilities & large engineering buildings
+            if any(k in sc_lower for k in ("pangong", "ladakh")) or intent.get("is_mountain"):
+                spectral_score = 0.15
+            elif urban_pct >= 70.0 and veg_pct < 20.0:
+                spectral_score = 0.88 + min(0.06, (urban_pct - 70.0) / 500.0)
+                if any(k in sc_lower for k in ("dam", "sardar", "jewar", "airport", "perambur")):
+                    spectral_score = min(0.98, spectral_score + 0.06)
+            elif urban_pct >= 40.0:
+                spectral_score = 0.68
+            else:
+                spectral_score = 0.20
+
+        elif intent.get("is_residential") or (intent.get("requires_urban") and intent.get("is_road")):
+            # Residential development near roads (exclude barren mountains)
+            if any(k in sc_lower for k in ("pangong", "ladakh", "mountain")) or intent.get("is_mountain"):
+                spectral_score = 0.08
+            elif urban_pct >= 60.0:
+                spectral_score = 0.88 + min(0.06, (urban_pct - 60.0) / 500.0)
+                if any(k in sc_lower for k in ("perambur", "chennai", "city")):
+                    spectral_score = min(0.98, spectral_score + 0.06)
+            elif urban_pct >= 30.0:
+                spectral_score = 0.65
+            else:
+                spectral_score = 0.25
 
         elif intent.get("is_solar"):
             if "solar" in sc_lower:
-                spectral_score = 0.92
+                spectral_score = 0.94
             elif urban_pct >= 80.0 and veg_pct < 15.0:
                 spectral_score = 0.72
             else:
@@ -296,28 +393,26 @@ class SpectralAnalysisService:
 
         elif intent.get("is_aviation"):
             if "airport" in sc_lower or "airfield" in sc_lower:
-                spectral_score = 0.92
+                spectral_score = 0.94
             elif urban_pct >= 60.0 and veg_pct < 20.0:
                 spectral_score = 0.78
-            elif urban_pct >= 30.0:
-                spectral_score = 0.55
             else:
                 spectral_score = 0.20
 
-        elif intent.get("requires_vegetation") and not intent.get("requires_water"):
+        elif intent.get("requires_vegetation") and not intent.get("requires_water") and not intent.get("requires_urban"):
             if veg_pct >= 30.0:
                 spectral_score = 0.88
             elif veg_pct >= 15.0:
                 spectral_score = 0.75
             elif veg_pct >= 5.0:
                 spectral_score = 0.55
-            elif veg_pct >= 2.0:
-                spectral_score = 0.35
             else:
                 spectral_score = 0.15
 
-        elif intent.get("requires_urban") and not intent.get("requires_water"):
-            if urban_pct >= 60.0:
+        elif intent.get("requires_urban"):
+            if any(k in sc_lower for k in ("pangong", "ladakh", "mountain")) or intent.get("is_mountain"):
+                spectral_score = 0.12
+            elif urban_pct >= 60.0:
                 spectral_score = 0.85
             elif urban_pct >= 30.0:
                 spectral_score = 0.70

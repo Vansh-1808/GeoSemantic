@@ -214,7 +214,7 @@ export default function DashboardPage() {
                 health.components.models.remoteclip.size_mb
                   ? `${health.components.models.remoteclip.size_mb} MB (Ready)`
                   : health.components.models.remoteclip.present
-                  ? "577.2 MB (Ready)"
+                  ? "Loaded"
                   : "Not downloaded"
               }
             />
@@ -225,7 +225,7 @@ export default function DashboardPage() {
                 health.components.models.dino.size_mb
                   ? `${health.components.models.dino.size_mb} MB (Ready)`
                   : health.components.models.dino.note ||
-                    (health.components.models.dino.present ? "84.2 MB (Ready)" : "Not downloaded")
+                    (health.components.models.dino.present ? "Loaded" : "Not downloaded")
               }
             />
             <StatusItem

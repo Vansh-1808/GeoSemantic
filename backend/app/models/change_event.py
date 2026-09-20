@@ -7,6 +7,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from typing import TYPE_CHECKING
+
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     Boolean,
@@ -23,6 +25,10 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.analyst import AnalystDecision
+    from app.models.tile import Tile
 
 
 class ChangeEvent(Base):
@@ -113,13 +119,13 @@ class ChangeEvent(Base):
     )
 
     # ── Relationships ─────────────────────────────────────────
-    before_tile: Mapped["Tile"] = relationship(  # noqa: F821
+    before_tile: Mapped[Tile] = relationship(
         "Tile", foreign_keys=[before_tile_id]
     )
-    after_tile: Mapped["Tile"] = relationship(  # noqa: F821
+    after_tile: Mapped[Tile] = relationship(
         "Tile", foreign_keys=[after_tile_id]
     )
-    analyst_decisions: Mapped[list["AnalystDecision"]] = relationship(  # noqa: F821
+    analyst_decisions: Mapped[list[AnalystDecision]] = relationship(
         "AnalystDecision", back_populates="change_event", cascade="all, delete-orphan"
     )
 

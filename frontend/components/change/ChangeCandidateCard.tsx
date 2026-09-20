@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { ChangeEventResponse } from "@/lib/api";
 import { api } from "@/lib/api";
-import { Sparkles, Compass, Layers, ArrowUpRight, Activity, Maximize2, Flame } from "lucide-react";
+import { Sparkles, Compass, Layers, ArrowUpRight, Activity, Maximize2, Flame, ShieldAlert, ShieldCheck, AlertTriangle } from "lucide-react";
 import { ChangeDetailModal } from "./ChangeDetailModal";
+import { ConfidenceGauge } from "./ConfidenceGauge";
 
 interface ChangeCandidateCardProps {
   event: ChangeEventResponse;
@@ -22,6 +23,10 @@ export function ChangeCandidateCard({ event }: ChangeCandidateCardProps) {
   const visualPct = Math.round((event.visual_change_score || 0) * 100);
   const semanticPct = Math.round((event.semantic_change_score || 0) * 100);
   const regQualityPct = Math.round((event.registration_quality || 0) * 100);
+
+  const confidenceTier = event.confidence_tier || event.confidence_breakdown?.confidence_tier || (event.is_suppressed ? "Suppressed" : confidencePct >= 70 ? "High Confidence" : confidencePct >= 45 ? "Medium Confidence" : "Low Confidence");
+  const suppressionReasons = event.suppression_reasons || event.confidence_breakdown?.reasons || (event.suppression_reason ? event.suppression_reason.split("; ") : []);
+  const isSuppressed = event.is_suppressed || confidenceTier === "Suppressed";
 
   const queryMatchScore = evidence.query_match_score != null ? Math.round(evidence.query_match_score * 100) : null;
   const explanation = evidence.explanation;
@@ -56,8 +61,11 @@ export function ChangeCandidateCard({ event }: ChangeCandidateCardProps) {
                   <span>Before Tile</span>
                 </div>
               )}
-              <div className="absolute top-2 left-2 bg-black/75 backdrop-blur-sm text-gray-200 text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded border border-gray-700">
-                Before: {event.before_date?.slice(0, 10) || "T1"}
+              <div className="absolute top-2 left-2 bg-black/75 backdrop-blur-sm text-gray-200 text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded border border-gray-700 flex items-center gap-1">
+                <span>Before: {event.before_date?.slice(0, 10) || "T1"}</span>
+                {evidence.before_tile_col != null && (
+                  <span className="text-gray-400 font-mono">[{evidence.before_tile_col},{evidence.before_tile_row}]</span>
+                )}
               </div>
             </div>
 
@@ -76,8 +84,11 @@ export function ChangeCandidateCard({ event }: ChangeCandidateCardProps) {
                   <span>After Tile</span>
                 </div>
               )}
-              <div className="absolute top-2 left-2 bg-blue-900/80 backdrop-blur-sm text-blue-200 text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded border border-blue-700">
-                After: {event.after_date?.slice(0, 10) || "T2"}
+              <div className="absolute top-2 left-2 bg-blue-900/80 backdrop-blur-sm text-blue-200 text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded border border-blue-700 flex items-center gap-1">
+                <span>After: {event.after_date?.slice(0, 10) || "T2"}</span>
+                {evidence.after_tile_col != null && (
+                  <span className="text-blue-300 font-mono">[{evidence.after_tile_col},{evidence.after_tile_row}]</span>
+                )}
               </div>
             </div>
 
@@ -92,7 +103,7 @@ export function ChangeCandidateCard({ event }: ChangeCandidateCardProps) {
 
         {/* Content Body */}
         <div className="p-4 space-y-3.5">
-          {/* Change Type & Query Match Badge */}
+          {/* Change Type & Confidence Tier Badge */}
           <div className="flex items-start justify-between gap-2">
             <div>
               <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider block">Classification</span>
@@ -101,13 +112,38 @@ export function ChangeCandidateCard({ event }: ChangeCandidateCardProps) {
               </span>
             </div>
 
-            {queryMatchScore !== null && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/15 border border-blue-500/40 text-blue-400 text-xs font-bold shadow-sm">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{queryMatchScore}% Match</span>
-              </div>
-            )}
+            <div className="flex flex-col items-end gap-1">
+              <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border shadow-sm ${
+                confidenceTier === "High Confidence"
+                  ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400"
+                  : confidenceTier === "Medium Confidence"
+                  ? "bg-cyan-500/15 border-cyan-500/40 text-cyan-400"
+                  : confidenceTier === "Low Confidence"
+                  ? "bg-amber-500/15 border-amber-500/40 text-amber-400"
+                  : "bg-rose-500/15 border-rose-500/40 text-rose-400"
+              }`}>
+                {confidenceTier}
+              </span>
+              {queryMatchScore !== null && (
+                <span className="text-[10px] text-blue-400 font-semibold font-mono">
+                  {queryMatchScore}% Match
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* Suppression Reasons Alert (if suppressed or false alarm) */}
+          {isSuppressed && suppressionReasons.length > 0 && (
+            <div className="p-2.5 bg-rose-950/30 border border-rose-800/50 rounded-lg text-xs text-rose-300 flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold text-rose-200 block text-[11px] uppercase tracking-wider">
+                  False Alarm Suppressed:
+                </span>
+                <span className="capitalize">{suppressionReasons.join("; ")}</span>
+              </div>
+            </div>
+          )}
 
           {/* AI Explanation Banner */}
           {explanation && (
@@ -117,23 +153,25 @@ export function ChangeCandidateCard({ event }: ChangeCandidateCardProps) {
             </div>
           )}
 
-          {/* Overall Confidence Bar */}
-          <div>
+          {/* Overall Confidence Bar & Mini Gauge */}
+          <div className="bg-gray-950/60 p-2.5 rounded-xl border border-gray-800/80">
             <div className="flex justify-between items-center text-xs mb-1.5">
-              <span className="text-gray-400 flex items-center gap-1">
+              <span className="text-gray-400 flex items-center gap-1.5">
                 <Activity className="w-3.5 h-3.5 text-blue-400" />
-                Confidence Score
+                <span>Multi-Factor Confidence</span>
               </span>
               <span className="text-white font-bold font-mono">{confidencePct}%</span>
             </div>
             <div className="w-full bg-gray-800 rounded-full h-2 overflow-hidden">
               <div
                 className={`h-2 rounded-full transition-all duration-500 ${
-                  confidencePct > 65
+                  isSuppressed
+                    ? "bg-rose-500"
+                    : confidencePct >= 70
                     ? "bg-gradient-to-r from-emerald-500 to-green-400"
-                    : confidencePct > 35
+                    : confidencePct >= 45
                     ? "bg-gradient-to-r from-blue-500 to-cyan-400"
-                    : "bg-gray-600"
+                    : "bg-amber-500"
                 }`}
                 style={{ width: `${Math.max(5, confidencePct)}%` }}
               ></div>
@@ -141,14 +179,23 @@ export function ChangeCandidateCard({ event }: ChangeCandidateCardProps) {
           </div>
 
           {/* Exact Observation Metrics (Area & Pixels) */}
-          {(alteredAreaHa > 0 || (changedPixels != null && changedPixels > 0)) && (
-            <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-gray-950/70 rounded-lg border border-gray-800/80 font-mono">
-              <span className="text-gray-400">Altered Surface:</span>
-              <span className="text-emerald-400 font-bold">
-                {alteredAreaHa > 0 ? `${alteredAreaHa} ha` : ""} {changedPixels != null ? `(${changedPixels.toLocaleString()} px)` : ""}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] px-2.5 py-1 bg-gray-950/70 rounded-lg border border-gray-800/80 font-mono">
+              <span className="text-gray-400">Ground Footprint:</span>
+              <span className="text-emerald-400 font-medium flex items-center gap-1">
+                <Compass className="w-3 h-3 text-emerald-400" />
+                {evidence.spatial_iou != null ? `${Math.round(evidence.spatial_iou * 100)}% Overlap (Aligned)` : "100% Co-registered"}
               </span>
             </div>
-          )}
+            {(alteredAreaHa > 0 || (changedPixels != null && changedPixels > 0)) && (
+              <div className="flex items-center justify-between text-[11px] px-2.5 py-1.5 bg-gray-950/70 rounded-lg border border-gray-800/80 font-mono">
+                <span className="text-gray-400">Altered Surface:</span>
+                <span className="text-emerald-400 font-bold">
+                  {alteredAreaHa > 0 ? `${alteredAreaHa} ha` : ""} {changedPixels != null ? `(${changedPixels.toLocaleString()} px)` : ""}
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Spectral Landcover Shift Badges */}
           {(deltaUrban != null || deltaWater != null || deltaVeg != null) && (

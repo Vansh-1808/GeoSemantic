@@ -2,7 +2,7 @@
 FastAPI application entry point.
 Mounts all routers, configures middleware, and manages startup/shutdown lifecycle.
 """
-# Reload trigger: change routes updated without duplicate prefix
+# Reload trigger: strict spatial IoU change detection active
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
@@ -57,6 +57,11 @@ async def lifespan(app: FastAPI):
     try:
         from app.services.vector_store import vector_store
         vector_store.close()
+    except Exception:
+        pass
+    try:
+        from app.services.llm_service import llm_service
+        await llm_service.close()
     except Exception:
         pass
     logger.info("geosemantic_shutting_down")
@@ -115,6 +120,7 @@ def create_app() -> FastAPI:
 
     # ── Routers ───────────────────────────────────────────────
     from app.api.routes import (  # noqa: F401
+        ai,
         embedding,
         health,
         ingest,
@@ -145,6 +151,7 @@ def create_app() -> FastAPI:
     app.include_router(quality.router, prefix="/quality", tags=["quality-root"])
     app.include_router(change.router, prefix="/api/change", tags=["change"])
     app.include_router(change.router, prefix="/change", tags=["change-root"])
+    app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 
     return app
 

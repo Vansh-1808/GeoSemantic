@@ -6,11 +6,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.change_event import ChangeEvent
 
 
 class AnalystDecision(Base):
@@ -46,7 +51,7 @@ class AnalystDecision(Base):
     )
 
     # ── Relationships ─────────────────────────────────────────
-    change_event: Mapped["ChangeEvent"] = relationship(  # noqa: F821
+    change_event: Mapped[ChangeEvent] = relationship(
         "ChangeEvent", back_populates="analyst_decisions"
     )
 

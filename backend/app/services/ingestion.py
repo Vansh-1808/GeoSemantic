@@ -428,7 +428,7 @@ async def _generate_tiles(
     tiles_dir.mkdir(parents=True, exist_ok=True)
     thumbnails_dir.mkdir(parents=True, exist_ok=True)
 
-    valid_tiles: list[Tile] = []
+    valid_tiles: list[tuple[Tile, str]] = []
     tile_col = 0
     tile_row = 0
     total_tiles_expected = 0
@@ -450,10 +450,10 @@ async def _generate_tiles(
             tile_col = 0
             for col_off in range(0, width, tile_size):
                 w = windows.Window(
-                    col_off=col_off,
-                    row_off=row_off,
-                    width=min(tile_size, width - col_off),
-                    height=min(tile_size, height - row_off),
+                    col_off,
+                    row_off,
+                    min(tile_size, width - col_off),
+                    min(tile_size, height - row_off),
                 )
                 actual_w, actual_h = int(w.width), int(w.height)
 
@@ -611,7 +611,8 @@ def _save_thumbnail(
 
         # HWC → PIL
         arr = np.moveaxis(rgb.astype(np.uint8), 0, -1)
-        img = Image.fromarray(arr).resize((128, 128), Image.LANCZOS)
+        resample_filter = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
+        img = Image.fromarray(arr).resize((128, 128), resample_filter)
 
         thumb_path = out_dir / f"thumb_{col:04d}_{row:04d}.png"
         img.save(thumb_path)

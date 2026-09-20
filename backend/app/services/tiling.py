@@ -164,10 +164,10 @@ async def process_scene_tiling(
 
                 total_inspected += 1
                 win = windows.Window(
-                    col_off=col_off,
-                    row_off=row_off,
-                    width=actual_w,
-                    height=actual_h,
+                    col_off,
+                    row_off,
+                    actual_w,
+                    actual_h,
                 )
 
                 # WINDOWED READ: Only load the specific tile window into RAM

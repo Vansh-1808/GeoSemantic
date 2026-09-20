@@ -246,6 +246,57 @@ export interface ChangeAnalyzeRequest {
   query?: string;
 }
 
+export interface FactorDetail {
+  key: string;
+  name: string;
+  raw_value: number;
+  weight: number;
+  contribution: number;
+  status: "optimal" | "moderate" | "caution" | "concerning" | "suppressed";
+  description: string;
+}
+
+export interface ConfidenceBreakdown {
+  final_confidence: number;
+  confidence_tier: "High Confidence" | "Medium Confidence" | "Low Confidence" | "Suppressed" | string;
+  is_suppressed: boolean;
+  reasons: string[];
+  positive_factors: string[];
+  factor_breakdown: Record<string, FactorDetail>;
+  penalties_applied: Record<string, number>;
+  raw_signals: Record<string, number>;
+  weights_applied: Record<string, number>;
+  query_match_score?: number | null;
+  changed_pixels?: number;
+  altered_area_ha?: number;
+}
+
+export interface ConfidenceConfig {
+  weights: {
+    weight_visual: number;
+    weight_semantic: number;
+    weight_spectral: number;
+    weight_spatial: number;
+    weight_quality: number;
+    weight_registration: number;
+    weight_sensor: number;
+    weight_seasonal: number;
+    cloud_penalty_multiplier: number;
+    shadow_penalty_multiplier: number;
+    misalignment_penalty_multiplier: number;
+    seasonal_veg_penalty_multiplier: number;
+  };
+  thresholds: {
+    high_threshold: number;
+    medium_threshold: number;
+    low_threshold: number;
+    cloud_suppression_limit: number;
+    registration_suppression_limit: number;
+    seasonal_veg_ratio_limit: number;
+    shadow_suppression_limit: number;
+  };
+}
+
 export interface ChangeEventResponse {
   id: string;
   before_tile_id: string | null;
@@ -256,15 +307,19 @@ export interface ChangeEventResponse {
   center_lat: number | null;
   change_type: string | null;
   final_confidence: number | null;
+  confidence_tier?: string | null;
   visual_change_score: number | null;
   semantic_change_score: number | null;
   registration_quality: number | null;
   is_suppressed: boolean;
+  suppression_reason?: string | null;
+  suppression_reasons?: string[] | null;
+  positive_factors?: string[] | null;
   review_status: string;
   detected_at: string;
   updated_at: string;
   evidence?: Record<string, any> | null;
-  confidence_breakdown?: Record<string, any> | null;
+  confidence_breakdown?: ConfidenceBreakdown | null;
 }
 
 export interface ChangeAnalyzeResponse {
@@ -345,6 +400,43 @@ export interface SemanticSearchResultItem {
   } | null;
 }
 
+export interface SpellingCorrectionItem {
+  original_word: string;
+  corrected_word: string;
+  confidence: number;
+  edit_distance: number;
+}
+
+export interface ParsedQuery {
+  raw_query: string;
+  normalized_query: string;
+  intent: "change_search" | "semantic_search" | "temporal_search" | string;
+  target?: string | null;
+  concept?: string | null;
+  relationship?: string | null;
+  location?: string | null;
+  location_bbox?: [number, number, number, number] | number[] | null;
+  location_type?: "country" | "state" | "city" | "region" | string | null;
+  location_wkt?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  time_anchor?: string | null;
+  max_cloud_cover?: number | null;
+  min_quality?: number | null;
+  sensor_constraints?: string[] | null;
+  requires_water: boolean;
+  requires_vegetation: boolean;
+  requires_urban: boolean;
+  canonical_embedding_text: string;
+  corrected_query?: string | null;
+  did_you_mean?: string | null;
+  corrections?: SpellingCorrectionItem[];
+}
+
+export interface QueryParseResponse {
+  parsed: ParsedQuery;
+}
+
 export interface SemanticSearchResponse {
   query: string;
   total_found: number;
@@ -356,6 +448,7 @@ export interface SemanticSearchResponse {
   model_used: string;
   results: SemanticSearchResultItem[];
   filters_applied: Record<string, any>;
+  parsed_query?: ParsedQuery | null;
 }
 
 export interface SearchFiltersResponse {
@@ -572,6 +665,11 @@ class GeoSemanticAPI {
     return res.data;
   }
 
+  async parseQuery(query: string): Promise<QueryParseResponse> {
+    const res = await this.client.post("/search/parse-query", { query });
+    return res.data;
+  }
+
   async getSearchFilters(): Promise<SearchFiltersResponse> {
     const res = await this.client.get("/search/filters");
     return res.data;
@@ -666,6 +764,136 @@ class GeoSemanticAPI {
     });
     return res.data;
   }
+
+  // ── Multi-Factor Confidence Engine ──────────────────────────
+
+  async getConfidenceConfig(): Promise<ConfidenceConfig> {
+    const res = await this.client.get("/change/confidence/config");
+    return res.data;
+  }
+
+  async updateConfidenceConfig(req: {
+    weights?: Partial<ConfidenceConfig["weights"]>;
+    thresholds?: Partial<ConfidenceConfig["thresholds"]>;
+  }): Promise<ConfidenceConfig> {
+    const res = await this.client.put("/change/confidence/config", req);
+    return res.data;
+  }
+
+  async evaluateConfidence(payload: {
+    visual_change?: number;
+    semantic_change?: number;
+    image_quality?: number;
+    cloud_score?: number;
+    shadow_score?: number;
+    registration_confidence?: number;
+    sensor_compatibility?: number;
+    seasonal_compatibility?: number;
+    spectral_evidence?: number;
+    spatial_consistency?: number;
+    is_seasonal_vegetation?: boolean;
+    change_type?: string;
+    query_match_score?: number;
+    weights_override?: Partial<ConfidenceConfig["weights"]>;
+  }): Promise<ConfidenceBreakdown> {
+    const res = await this.client.post("/change/confidence/evaluate", payload);
+    return res.data;
+  }
+
+  // ── Phase 14: Local AI / LLM ──────────────────────────────────────────────
+
+  async getAIStatus(): Promise<AIStatusResponse> {
+    const res = await this.client.get("/ai/status");
+    return res.data;
+  }
+
+  async getAIModels(): Promise<AIModelsResponse> {
+    const res = await this.client.get("/ai/models");
+    return res.data;
+  }
+
+  async generateText(payload: {
+    prompt: string;
+    system?: string;
+    model?: string;
+    format?: "json";
+  }): Promise<AIGenerateResponse> {
+    const res = await this.client.post("/ai/generate", payload);
+    return res.data;
+  }
+
+  async parseAnalystQuery(payload: {
+    query: string;
+    use_llm?: boolean;
+  }): Promise<AnalystQueryParseResponse> {
+    const res = await this.client.post("/ai/parse-query", payload);
+    return res.data;
+  }
 }
 
 export const api = new GeoSemanticAPI();
+
+// ── Phase 14: Local AI Types ──────────────────────────────────────────────────
+
+export interface AIModelItem {
+  name: string;
+  model: string;
+  parameter_size?: string | null;
+  quantization_level?: string | null;
+  family?: string | null;
+  size_bytes?: number | null;
+  capabilities: string[];
+}
+
+export interface AIStatusResponse {
+  available: boolean;
+  provider: string;
+  model: string;
+  local: boolean;
+  models_available: string[];
+  latency_ms?: number | null;
+  error?: string | null;
+}
+
+export interface AIModelsResponse {
+  provider: string;
+  models: AIModelItem[];
+  total: number;
+}
+
+export interface AIGenerateResponse {
+  response: string;
+  model: string;
+  provider: string;
+  duration_ms: number;
+  done: boolean;
+}
+
+export interface AnalystQuery {
+  intent: "change_analysis" | "semantic_search" | "temporal_search" | "general_query";
+  location?: string | null;
+  location_type?: string | null;
+  concepts: string[];
+  target?: string | null;
+  change_type?: string | null;
+  relationships: string[];
+  start_date?: string | null;
+  end_date?: string | null;
+  sensor?: string | null;
+  confidence_requirement?: string | null;
+  requires_water: boolean;
+  requires_vegetation: boolean;
+  requires_urban: boolean;
+  raw_query: string;
+  corrected_query?: string | null;
+}
+
+export interface AnalystQueryParseResponse {
+  analyst_query: AnalystQuery;
+  llm_used: boolean;
+  llm_model?: string | null;
+  inference_duration_ms?: number | null;
+  validation_passed: boolean;
+  fallback_reason?: string | null;
+  extra: Record<string, unknown>;
+}

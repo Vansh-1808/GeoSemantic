@@ -18,7 +18,7 @@ export default function ChangeAnalysisPage() {
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("ALL");
 
   // Natural Language Search State (No coordinates required!)
-  const [query, setQuery] = useState("Airport runway, passenger terminal and road expansion");
+  const [query, setQuery] = useState("");
   
   // Optional Advanced Filters (Hidden by default)
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -29,6 +29,7 @@ export default function ChangeAnalysisPage() {
   
   const [results, setResults] = useState<ChangeEventResponse[]>([]);
   const [recentEvents, setRecentEvents] = useState<ChangeEventResponse[]>([]);
+  const [tierFilter, setTierFilter] = useState<string>("ALL");
 
   // Semantic query helper tags for one-click demonstration
   const semanticTags = [
@@ -79,7 +80,7 @@ export default function ChangeAnalysisPage() {
       }
 
       // Automatically trigger initial analysis across the whole archive
-      executeAnalysis("Airport runway, passenger terminal and road expansion");
+      executeAnalysis("");
     } catch (err) {
       console.error("Failed to load initial data:", err);
     } finally {
@@ -94,12 +95,13 @@ export default function ChangeAnalysisPage() {
 
     try {
       const cleanWkt = (customWkt !== undefined ? customWkt : aoiWkt).trim();
+      const sanitizedQuery = searchQuery.trim().replace(/^["']+|["']+$/g, '').trim();
       const req: ChangeAnalyzeRequest = {
         aoi_wkt: cleanWkt && cleanWkt.toUpperCase() !== "ALL" ? cleanWkt : null,
         start_date: startDate ? new Date(startDate).toISOString() : undefined,
         end_date: endDate ? new Date(endDate).toISOString() : undefined,
         limit,
-        query: searchQuery.trim() || undefined,
+        query: sanitizedQuery || undefined,
       };
 
       const res = await api.analyzeChange(req);
@@ -403,12 +405,52 @@ export default function ChangeAnalysisPage() {
           </div>
         )}
 
+        {/* Confidence Tier Quick Filter Tabs */}
+        {results.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 pb-2">
+            <span className="text-xs text-gray-400 font-medium mr-1">Filter Tier:</span>
+            {[
+              { id: "ALL", label: "All Candidates", count: results.length },
+              { id: "HIGH", label: "High Confidence", count: results.filter(e => (e.confidence_tier === "High Confidence" || (!e.is_suppressed && (e.final_confidence || 0) >= 0.70))).length },
+              { id: "MEDIUM", label: "Medium Confidence", count: results.filter(e => (e.confidence_tier === "Medium Confidence" || (!e.is_suppressed && (e.final_confidence || 0) >= 0.45 && (e.final_confidence || 0) < 0.70))).length },
+              { id: "LOW", label: "Low Confidence", count: results.filter(e => (e.confidence_tier === "Low Confidence" || (!e.is_suppressed && (e.final_confidence || 0) < 0.45))).length },
+              { id: "SUPPRESSED", label: "Suppressed (False Alarms)", count: results.filter(e => e.is_suppressed || e.confidence_tier === "Suppressed").length },
+            ].map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setTierFilter(f.id)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-all flex items-center gap-1.5 ${
+                  tierFilter === f.id
+                    ? "bg-blue-600 border-blue-500 text-white shadow-sm"
+                    : "bg-gray-900 border-gray-800 text-gray-400 hover:text-gray-200 hover:bg-gray-800"
+                }`}
+              >
+                <span>{f.label}</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/40 font-mono">
+                  {f.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Results Grid */}
         {!loading && results.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {results.map((event) => (
-              <ChangeCandidateCard key={event.id} event={event} />
-            ))}
+            {results
+              .filter((ev) => {
+                if (tierFilter === "ALL") return true;
+                const tier = ev.confidence_tier || ev.confidence_breakdown?.confidence_tier || (ev.is_suppressed ? "Suppressed" : ((ev.final_confidence || 0) >= 0.70 ? "High Confidence" : (ev.final_confidence || 0) >= 0.45 ? "Medium Confidence" : "Low Confidence"));
+                if (tierFilter === "SUPPRESSED") return ev.is_suppressed || tier === "Suppressed";
+                if (tierFilter === "HIGH") return tier === "High Confidence";
+                if (tierFilter === "MEDIUM") return tier === "Medium Confidence";
+                if (tierFilter === "LOW") return tier === "Low Confidence";
+                return true;
+              })
+              .map((event) => (
+                <ChangeCandidateCard key={event.id} event={event} />
+              ))}
           </div>
         )}
 

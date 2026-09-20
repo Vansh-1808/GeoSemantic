@@ -7,6 +7,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
+from typing import TYPE_CHECKING
+
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     DateTime,
@@ -21,6 +23,9 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+
+if TYPE_CHECKING:
+    from app.models.scene import Scene
 
 
 class Tile(Base):
@@ -45,7 +50,7 @@ class Tile(Base):
     # ── Grid Position ─────────────────────────────────────────
     tile_col: Mapped[int] = mapped_column(Integer, nullable=False)
     tile_row: Mapped[int] = mapped_column(Integer, nullable=False)
-    tile_size: Mapped[int] = mapped_column(Integer, nullable=False, default=256)
+    tile_size: Mapped[int] = mapped_column(Integer, nullable=False, default=512)
 
     # ── Pixel Coordinates in Source Raster ───────────────────
     pixel_x_off: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -98,7 +103,7 @@ class Tile(Base):
     )
 
     # ── Relationships ─────────────────────────────────────────
-    scene: Mapped["Scene"] = relationship("Scene", back_populates="tiles")  # noqa: F821
+    scene: Mapped[Scene] = relationship("Scene", back_populates="tiles")
 
     __table_args__ = (
         Index("ix_tile_scene_id", "scene_id"),

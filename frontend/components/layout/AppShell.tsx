@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   LayoutDashboard,
   Search,
@@ -17,10 +17,11 @@ import {
   Satellite,
   Wifi,
   WifiOff,
+  BrainCircuit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/lib/store";
-import { api } from "@/lib/api";
+import { api, type AIStatusResponse } from "@/lib/api";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Dashboard" },
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { isOffline, dbConnected, setSystemStatus } = useAppStore();
+  const [aiStatus, setAiStatus] = useState<AIStatusResponse | null>(null);
 
   // Poll system health every 30s
   useEffect(() => {
@@ -59,6 +61,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const interval = setInterval(check, 30_000);
     return () => clearInterval(interval);
   }, [setSystemStatus]);
+
+  // Poll local AI status every 60s (Phase 14)
+  useEffect(() => {
+    const checkAI = async () => {
+      try {
+        const status = await api.getAIStatus();
+        setAiStatus(status);
+      } catch {
+        setAiStatus({ available: false, provider: "ollama", model: "llama3", local: true, models_available: [], error: "Unreachable" });
+      }
+    };
+    checkAI();
+    const interval = setInterval(checkAI, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-950">
@@ -128,6 +145,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
             />
             {dbConnected ? "Database OK" : "DB unavailable"}
+          </div>
+
+          {/* Local AI status (Phase 14) */}
+          <div
+            className={cn(
+              "flex items-center gap-2 px-2 py-1 rounded text-xs",
+              aiStatus === null
+                ? "text-gray-500"
+                : aiStatus.available
+                ? "text-violet-400"
+                : "text-amber-400"
+            )}
+            title={
+              aiStatus?.error
+                ? `Local AI: ${aiStatus.error}`
+                : aiStatus?.available
+                ? `Local AI: ${aiStatus.model}${aiStatus.latency_ms ? ` · ${aiStatus.latency_ms}ms` : ""}`
+                : "Local AI: not connected"
+            }
+          >
+            <BrainCircuit className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {aiStatus === null
+                ? "Local AI …"
+                : aiStatus.available
+                ? `AI · ${aiStatus.model.split(":")[0]}`
+                : "AI offline"}
+            </span>
           </div>
         </div>
       </aside>

@@ -33,16 +33,21 @@ import {
   X,
   ShieldCheck,
 } from "lucide-react";
+import { QueryUnderstandingBadge } from "@/components/search/QueryUnderstandingBadge";
 
 const QUERY_SUGGESTIONS = [
-  "Water bodies, lakes and river reservoirs",
+  "desert in Rajasthan",
+  "industrial areas in Tamil Nadu",
+  "urban development in Chennai",
+  "water bodies in Kerala",
+  "Rajasthan desert",
+  "rajasthan dessert",
+  "New construction near roads after 2023",
+  "Solar farms in Bhadla after 2020",
+  "Cloud-free satellite imagery of airports in Noida",
+  "Vegetation clearance near water bodies between 2018 and 2022",
   "Varanasi Ganga river channel",
-  "Kashmir Dal Lake in Srinagar",
   "Sardar Sarovar Dam water reservoir",
-  "Noida Jewar airport runway and terminal",
-  "Bhadla solar park solar panels",
-  "Agricultural farmland and green vegetation",
-  "Himalayan mountains and Ladakh Pangong lake",
 ];
 
 export default function SearchPage() {
@@ -600,6 +605,14 @@ export default function SearchPage() {
           <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
           <span>{searchError}</span>
         </div>
+      )}
+
+      {/* Phase 12 & 13 Query Understanding & Robustness Breakdown */}
+      {searchResponse?.parsed_query && (
+        <QueryUnderstandingBadge
+          parsed={searchResponse.parsed_query}
+          onAcceptSuggestion={(suggestion) => handleSearch(suggestion)}
+        />
       )}
 
       {/* Search Telemetry Bar */}

@@ -11,16 +11,46 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_session
 from app.schemas.search import (
+    ParsedQuerySchema,
+    QueryParseRequest,
+    QueryParseResponse,
     SearchFiltersResponse,
     SemanticSearchRequest,
     SemanticSearchResponse,
     VisualSearchRequest,
     VisualSearchResponse,
 )
+from app.services.query_understanding import query_understanding_service
 from app.services.semantic_search import semantic_search_service
 from app.services.visual_search import visual_search_service
 
 router = APIRouter()
+
+
+@router.post("/parse-query", response_model=QueryParseResponse)
+async def parse_query_endpoint(req: QueryParseRequest) -> QueryParseResponse:
+    """
+    Parse a natural language query into a structured internal representation.
+    Extracts intent, concept, target, relationship, location, temporal bounds, and quality constraints.
+    """
+    parsed = query_understanding_service.parse(req.query)
+    return QueryParseResponse(parsed=ParsedQuerySchema(**parsed.model_dump()))
+
+
+@router.get("/parse-query", response_model=QueryParseResponse)
+async def parse_query_get_endpoint(
+    q: Optional[str] = Query(default=None, description="Query string alias 'q'"),
+    query: Optional[str] = Query(default=None, description="Query string 'query'"),
+) -> QueryParseResponse:
+    """GET endpoint to inspect structured query interpretation directly."""
+    target_query = q or query or ""
+    if not target_query.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Query parameter 'q' or 'query' is required.",
+        )
+    parsed = query_understanding_service.parse(target_query)
+    return QueryParseResponse(parsed=ParsedQuerySchema(**parsed.model_dump()))
 
 
 @router.post("/semantic", response_model=SemanticSearchResponse)
